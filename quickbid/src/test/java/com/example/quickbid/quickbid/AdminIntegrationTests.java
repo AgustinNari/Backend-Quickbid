@@ -44,7 +44,7 @@ import com.example.quickbid.quickbid.service.ConsignmentService;
 import com.example.quickbid.quickbid.service.SimulatedMailService;
 import com.jayway.jsonpath.JsonPath;
 
-@SpringBootTest
+@SpringBootTest(properties = "app.mail.enabled=false")
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Sql(scripts = "/auth-test-data.sql", executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
@@ -283,11 +283,11 @@ class AdminIntegrationTests {
 				INSERT INTO app_inscripciones_subasta(subasta_id,cuenta_id,medio_pago_id,estado)
 				VALUES (?,3001,5001,'aprobada')
 				""", id);
+		jdbc.update("UPDATE subastas SET estado='cerrada' WHERE identificador=?", id);
 		admin(post("/api/admin/subastas/" + id + "/abrir")).andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.estado").value("en_vivo"));
+		assertEquals("cerrada", jdbc.queryForObject("SELECT estado FROM subastas WHERE identificador=?", String.class, id));
 		assertTrue(delivered("notification", "subasta_inscripta_proxima_inicio"));
-		// Abrir la subasta debe dejar programada la activacion del primer lote para que
-		// el scheduler avance el ciclo de vida sin intervencion manual.
 		assertNotNull(jdbc.queryForObject(
 				"SELECT proximo_lote_programado_at FROM app_subasta_estado_vivo WHERE subasta_id=?",
 				java.time.OffsetDateTime.class, id));
@@ -394,7 +394,12 @@ class AdminIntegrationTests {
 		admin(post("/api/admin/seed/base")).andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.estado").value("sin_cambios"));
 		admin(post("/api/admin/reset/demo")).andExpect(status().isOk())
-				.andExpect(jsonPath("$.data.detalle", not(blankOrNullString())));
+				.andExpect(jsonPath("$.data.estado").value("preparada"))
+				.andExpect(jsonPath("$.data.detalle", containsString("item 9006")));
+		assertEquals("abierta", jdbc.queryForObject(
+				"SELECT estado_operativo FROM app_subasta_ext WHERE subasta_id=6004", String.class));
+		assertEquals("no", jdbc.queryForObject(
+				"SELECT subastado FROM \"itemsCatalogo\" WHERE identificador=9006", String.class));
 	}
 
 	private long registration(String email) {
@@ -407,7 +412,7 @@ class AdminIntegrationTests {
 
 	private Long consignmentReadyForAgreement(Long accountId) {
 		Long id = consignments.create(accountId, "arte", "comun", true, true, "Articulo admin", "Descripcion demo", null,
-				"1980", false, null, null, photos()).id();
+				"1980", false, null, null, null, photos()).id();
 		consignments.approveDigitalReview(id, 1002);
 		consignments.markPhysicalReception(id, 1002);
 		consignments.approvePhysicalReview(id, 1002);

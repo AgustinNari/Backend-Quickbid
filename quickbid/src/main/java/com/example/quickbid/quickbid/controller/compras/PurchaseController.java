@@ -3,6 +3,11 @@ package com.example.quickbid.quickbid.controller.compras;
 import java.util.List;
 
 import org.springframework.security.core.Authentication;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.InvalidMediaTypeException;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -57,7 +62,7 @@ public class PurchaseController {
 	public ApiResponse<DeliveryPreview> deliveryPreview(Authentication authentication, @PathVariable Long id,
 			@Valid @RequestBody PurchaseDeliveryRequest request) {
 		return ApiResponse.success(purchases.previewDelivery(accountId(authentication), id, request),
-				"Cotizacion de entrega");
+				"Cotización de entrega");
 	}
 
 	@PostMapping("/{id}/pagar")
@@ -75,6 +80,24 @@ public class PurchaseController {
 	@GetMapping("/{id}/documentos")
 	public ApiResponse<List<Document>> documents(Authentication authentication, @PathVariable Long id) {
 		return ApiResponse.success(purchases.documents(accountId(authentication), id), "Documentos de compra");
+	}
+
+	@GetMapping("/{id}/documentos/{documentoId}/descargar")
+	public ResponseEntity<byte[]> downloadDocument(Authentication authentication, @PathVariable Long id,
+			@PathVariable Long documentoId) {
+		var file = purchases.downloadDocument(accountId(authentication), id, documentoId);
+		MediaType contentType;
+		try {
+			contentType = MediaType.parseMediaType(file.contentType());
+		} catch (InvalidMediaTypeException exception) {
+			contentType = MediaType.APPLICATION_OCTET_STREAM;
+		}
+		return ResponseEntity.ok()
+				.contentType(contentType)
+				.header(HttpHeaders.CONTENT_DISPOSITION,
+						ContentDisposition.attachment().filename(file.filename(), java.nio.charset.StandardCharsets.UTF_8).build().toString())
+				.contentLength(file.content().length)
+				.body(file.content());
 	}
 
 	private Long accountId(Authentication authentication) {

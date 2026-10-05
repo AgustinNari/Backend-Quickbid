@@ -2,9 +2,13 @@ package com.example.quickbid.quickbid.service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.io.IOException;
 import java.sql.PreparedStatement;
+import java.security.MessageDigest;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.HexFormat;
 import java.util.Set;
 import java.util.UUID;
 
@@ -29,10 +33,15 @@ import com.example.quickbid.quickbid.dto.response.PurchaseDtos.Payment;
 import com.example.quickbid.quickbid.dto.response.PurchaseDtos.Summary;
 import com.example.quickbid.quickbid.dto.response.SubastaDtos.AuctionLifecycleEvent;
 import com.example.quickbid.quickbid.entity.app.CuentaApp;
+import com.example.quickbid.quickbid.entity.app.ArchivoApp;
 import com.example.quickbid.quickbid.exception.BusinessException;
 import com.example.quickbid.quickbid.repository.app.CuentaAppRepository;
 import com.example.quickbid.quickbid.repository.app.DireccionEnvioRepository;
+import com.example.quickbid.quickbid.repository.app.ArchivoAppRepository;
 import com.example.quickbid.quickbid.repository.app.PurchaseReadRepository;
+import com.example.quickbid.quickbid.repository.app.PurchaseReadRepository.DocumentFile;
+import com.example.quickbid.quickbid.storage.FileDownload;
+import com.example.quickbid.quickbid.storage.StorageService;
 import com.example.quickbid.quickbid.websocket.PurchaseRealtimePublisher;
 
 @Service
@@ -53,6 +62,10 @@ public class PurchaseService {
 	private final MailNotificationService mail;
 	private final PurchaseReadRepository reads;
 	private final DireccionEnvioRepository addresses;
+	private final ArchivoAppRepository files;
+	private final StorageService storage;
+	private final SimplePdfService pdfs;
+	private final PaymentFailureSimulationService paymentFailureSimulation;
 	private final BigDecimal shippingFlatCost;
 	private final int completedPoints;
 	private final int fineGeneratedPointsPenalty;
@@ -60,7 +73,8 @@ public class PurchaseService {
 
 	public PurchaseService(JdbcTemplate jdbc, CuentaAppRepository accounts, CategoriaService categories,
 			AuditService audit, PurchaseRealtimePublisher realtime, MailNotificationService mail,
-			PurchaseReadRepository reads, DireccionEnvioRepository addresses,
+			PurchaseReadRepository reads, DireccionEnvioRepository addresses, ArchivoAppRepository files,
+			StorageService storage, SimplePdfService pdfs, PaymentFailureSimulationService paymentFailureSimulation,
 			@Value("${app.purchase.shipping-flat-cost:5000}") BigDecimal shippingFlatCost,
 			@Value("${app.purchase.completed-points:60}") int completedPoints,
 			@Value("${app.purchase.fine-generated-points-penalty:90}") int fineGeneratedPointsPenalty,
@@ -73,6 +87,10 @@ public class PurchaseService {
 		this.mail = mail;
 		this.reads = reads;
 		this.addresses = addresses;
+		this.files = files;
+		this.storage = storage;
+		this.pdfs = pdfs;
+		this.paymentFailureSimulation = paymentFailureSimulation;
 		this.shippingFlatCost = shippingFlatCost;
 		this.completedPoints = completedPoints;
 		this.fineGeneratedPointsPenalty = fineGeneratedPointsPenalty;
@@ -97,7 +115,25 @@ public class PurchaseService {
 	@Transactional(readOnly = true)
 	public List<Document> documents(Long accountId, Long purchaseId) {
 		ownedPurchase(accountId, purchaseId, false);
-		return reads.findAvailableDocuments(purchaseId);
+		return reads.findAvailableDocuments(purchaseId).stream().map(file -> document(purchaseId, file)).toList();
+	}
+
+	@Transactional(readOnly = true)
+	public FileDownload downloadDocument(Long accountId, Long purchaseId, Long documentId) {
+		ownedPurchase(accountId, purchaseId, false);
+		DocumentFile file = reads.findDocument(purchaseId, documentId);
+		if (file == null) throw notFound("Documento inexistente o no disponible");
+		if (file.contentBytes() != null && file.contentBytes().length > 0) {
+			return new FileDownload(file.filename(), file.contentType(), file.contentBytes());
+		}
+		if (!storage.exists(file.storagePath())) throw notFound("Documento inexistente o no disponible");
+		try (var input = storage.load(file.storagePath())) {
+			byte[] content = input.readAllBytes();
+			if (content.length == 0) throw notFound("Documento inexistente o no disponible");
+			return new FileDownload(file.filename(), file.contentType(), content);
+		} catch (IOException | IllegalStateException exception) {
+			throw notFound("Documento inexistente o no disponible");
+		}
 	}
 
 	@Transactional(readOnly = true)
@@ -168,7 +204,7 @@ public class PurchaseService {
 			throw conflict("El lote ya fue cerrado", "LOT_ALREADY_CLOSED");
 		}
 		Auction auction = auction(auctionId);
-		if (!auction.state().equals("en_vivo")) throw conflict("La subasta no esta en vivo", "AUCTION_NOT_LIVE");
+		if (!auction.state().equals("en_vivo")) throw conflict("La subasta no está en vivo", "AUCTION_NOT_LIVE");
 		Item item = item(live.itemId());
 		Long existingPurchase = purchaseForItem(item.id());
 		if (existingPurchase != null) return internalDetail(existingPurchase);
@@ -218,9 +254,6 @@ public class PurchaseService {
 		if (live.itemId() != null) throw conflict("Existe un lote activo", "INVALID_STATE_TRANSITION");
 		jdbc.update("UPDATE app_subasta_ext SET estado_operativo='finalizada',updated_at=CURRENT_TIMESTAMP WHERE subasta_id=?",
 				auctionId);
-		jdbc.update("UPDATE subastas SET estado='cerrada' WHERE identificador=?", auctionId);
-		// El cierre tambien es un cambio de estado versionado: se incrementa la version y se
-		// limpia la programacion pendiente para que el scheduler no vuelva a procesar la subasta.
 		long nextVersion = live.version() + 1;
 		jdbc.update("""
 				UPDATE app_subasta_estado_vivo
@@ -259,23 +292,24 @@ public class PurchaseService {
 	@Transactional
 	public void expireFine(Long fineId, boolean force) {
 		FineRow fine = lockFine(fineId);
-		if (!fine.state().equals("pendiente")) throw conflict("La multa no esta pendiente", "INVALID_STATE_TRANSITION");
+		if (!fine.state().equals("pendiente")) throw conflict("La multa no está pendiente", "INVALID_STATE_TRANSITION");
 		if (!force && fine.expiresAt().isAfter(OffsetDateTime.now())) {
-			throw conflict("La multa todavia no vencio", "FINE_NOT_EXPIRED");
+			throw conflict("La multa todavía no venció", "FINE_NOT_EXPIRED");
 		}
 		jdbc.update("UPDATE app_multas SET estado='vencida' WHERE id=?", fineId);
 		CuentaApp account = account(fine.accountId());
 		account.changeState("bloqueada_permanente");
 		categories.addPoints(account, -fineExpiredPointsPenalty, "multa_vencida", "multa", fineId);
 		notify(fine.accountId(), "multa_vencida", "Cuenta bloqueada",
-				"La multa vencio y la cuenta quedo bloqueada permanentemente.", "multa", fineId);
+				"La multa venció y la cuenta quedó bloqueada permanentemente.", "multa", fineId);
 		audit.record(new AuditEvent("sistema", null, "multa.vencida", "multa", fineId, "{}"));
 	}
 
 	@Transactional
 	public int expireDueFines() {
 		List<Long> due = jdbc.query("""
-				SELECT id FROM app_multas WHERE estado='pendiente' AND vence_at<=CURRENT_TIMESTAMP ORDER BY vence_at,id
+				SELECT id FROM app_multas WHERE estado='pendiente' AND vence_at<=CURRENT_TIMESTAMP
+				ORDER BY vence_at,id FOR UPDATE SKIP LOCKED
 				""", (rs, row) -> rs.getLong(1));
 		due.forEach(id -> expireFine(id, false));
 		return due.size();
@@ -284,7 +318,7 @@ public class PurchaseService {
 	@Transactional
 	public void markFinePaid(Long fineId) {
 		FineRow fine = lockFine(fineId);
-		if (!fine.state().equals("pendiente")) throw conflict("La multa no esta pendiente", "INVALID_STATE_TRANSITION");
+		if (!fine.state().equals("pendiente")) throw conflict("La multa no está pendiente", "INVALID_STATE_TRANSITION");
 		jdbc.update("UPDATE app_multas SET estado='pagada',paid_at=CURRENT_TIMESTAMP WHERE id=?", fineId);
 		Long purchaseId = jdbc.queryForObject("SELECT compra_id FROM app_multas WHERE id=?", Long.class, fineId);
 		jdbc.update("UPDATE app_compras SET estado='pagos_extra_pendientes',updated_at=CURRENT_TIMESTAMP WHERE id=?",
@@ -292,7 +326,7 @@ public class PurchaseService {
 		if (pendingFineCount(fine.accountId()) == 0) account(fine.accountId()).changeState("activa");
 		createDocument(purchaseId, "recibo_multa", "recibo-multa-" + fineId + ".pdf");
 		notify(fine.accountId(), "multa_pagada", "Multa pagada",
-				"La restriccion por multa fue regularizada manualmente.", "multa", fineId);
+				"La restricción por multa fue regularizada manualmente.", "multa", fineId);
 		audit.record(new AuditEvent("admin", null, "multa.marcada_pagada", "multa", fineId, "{}"));
 	}
 
@@ -324,7 +358,7 @@ public class PurchaseService {
 		List<Long> due = jdbc.query("""
 				SELECT id FROM app_compras
 				WHERE estado='pagos_extra_pendientes' AND updated_at<=?
-				ORDER BY updated_at,id
+				ORDER BY updated_at,id FOR UPDATE SKIP LOCKED
 				""", (rs, row) -> rs.getLong(1), OffsetDateTime.now().minusHours(72));
 		due.forEach(id -> abandon(id, false));
 		return due.size();
@@ -332,11 +366,11 @@ public class PurchaseService {
 
 	private void automaticAdjudicationPayment(Long purchaseId, WinningBid winning, String currency,
 			PaymentOutcome outcome) {
-		boolean success = paymentSucceeds(winning.accountId(), winning.paymentId(), currency, winning.amount(), outcome);
+		PaymentAttempt attempt = adjudicationPaymentAttempt(winning, currency, outcome);
 		Payment payment = insertPayment(purchaseId, null, winning.paymentId(), winning.amount(), currency,
-				success ? "aprobado" : "rechazado", "auto-adjudicacion-" + purchaseId,
-				success ? null : "INSUFFICIENT_FUNDS_OR_LIMIT");
-		if (success) {
+				attempt.success() ? "aprobado" : "rechazado", "auto-adjudicacion-" + purchaseId,
+				attempt.errorCode(), attempt.errorDetail());
+		if (attempt.success()) {
 			consumeReservation(winning.id(), winning.paymentId(), winning.amount());
 			jdbc.update("UPDATE app_compras SET estado='pagos_extra_pendientes',updated_at=CURRENT_TIMESTAMP WHERE id=?",
 					purchaseId);
@@ -359,6 +393,19 @@ public class PurchaseService {
 		notify(winning.accountId(), "lote_ganado", "Lote ganado", "Ganaste el lote subastado.", "compra", purchaseId);
 	}
 
+	private PaymentAttempt adjudicationPaymentAttempt(WinningBid winning, String currency, PaymentOutcome outcome) {
+		boolean validPayment = paymentSucceeds(winning.accountId(), winning.paymentId(), currency, winning.amount(), outcome);
+		if (!validPayment) {
+			return new PaymentAttempt(false, "INSUFFICIENT_FUNDS_OR_LIMIT",
+					"Falla de cobro simulada o fondos insuficientes.");
+		}
+		if (outcome == PaymentOutcome.AUTO && paymentFailureSimulation.shouldFailAdjudicationPayment()) {
+			return new PaymentAttempt(false, "ADJUDICATION_EXTERNAL_PAYMENT_FAILURE",
+					"Falla externa simulada durante el cobro automatico de adjudicacion.");
+		}
+		return new PaymentAttempt(true, null, null);
+	}
+
 	private Payment payExtras(Long accountId, Long purchaseId, Long paymentId, String key, PaymentOutcome outcome) {
 		Payment replay = replayPayment(accountId, purchaseId, paymentId, key);
 		if (replay != null) return replay;
@@ -368,7 +415,7 @@ public class PurchaseService {
 		}
 		if (activeFine(purchaseId) != null) throw conflict("La compra posee una multa activa", "FINE_PAYMENT_REQUIRED");
 		PurchaseDtos.Delivery delivery = delivery(purchaseId);
-		if (delivery == null) throw conflict("Primero debes elegir envio o retiro", "DELIVERY_SELECTION_REQUIRED");
+		if (delivery == null) throw conflict("Primero debés elegir envío o retiro", "DELIVERY_SELECTION_REQUIRED");
 		BigDecimal amount = purchase.buyerCommission().add(delivery.costoEnvio());
 		boolean success = paymentSucceeds(accountId, paymentId, purchase.currency(), amount, outcome);
 		Payment payment = insertPayment(purchaseId, null, paymentId, amount, purchase.currency(),
@@ -397,7 +444,7 @@ public class PurchaseService {
 			throw conflict("La compra no posee multa activa", "INVALID_STATE_TRANSITION");
 		}
 		FineRow fine = activeFine(purchaseId);
-		if (fine == null) throw conflict("La multa no esta disponible", "INVALID_STATE_TRANSITION");
+		if (fine == null) throw conflict("La multa no está disponible", "INVALID_STATE_TRANSITION");
 		BigDecimal amount = purchase.amount().add(fine.amount());
 		boolean success = paymentSucceeds(accountId, paymentId, purchase.currency(), amount, outcome);
 		Payment payment = insertPayment(purchaseId, fine.id(), paymentId, amount, purchase.currency(),
@@ -409,7 +456,7 @@ public class PurchaseService {
 					purchaseId);
 			if (pendingFineCount(accountId) == 0) account(accountId).changeState("activa");
 			createDocument(purchaseId, "recibo_multa", "recibo-multa-" + fine.id() + ".pdf");
-			notify(accountId, "multa_pagada", "Multa pagada", "La restriccion por multa fue regularizada.", "multa",
+			notify(accountId, "multa_pagada", "Multa pagada", "La restricción por multa fue regularizada.", "multa",
 					fine.id());
 			audit.record(new AuditEvent("usuario", accountId, "multa.pagada", "multa", fine.id(), "{}"));
 		}
@@ -423,10 +470,10 @@ public class PurchaseService {
 		PaymentMethod method = paymentMethod(accountId, paymentId);
 		if (!method.currency().equals(currency)) throw unprocessable("Moneda incompatible", "PAYMENT_METHOD_CURRENCY_MISMATCH");
 		if (!method.state().equals("verificado") || method.deletedAt() != null) {
-			throw forbidden("El medio no esta verificado", "PAYMENT_METHOD_NOT_VERIFIED");
+			throw forbidden("El medio no está verificado", "PAYMENT_METHOD_NOT_VERIFIED");
 		}
 		if (method.verifiedUntil() == null || !method.verifiedUntil().isAfter(OffsetDateTime.now())) {
-			throw forbidden("La verificacion del medio vencio", "PAYMENT_METHOD_VERIFICATION_EXPIRED");
+			throw forbidden("La verificación del medio venció", "PAYMENT_METHOD_VERIFICATION_EXPIRED");
 		}
 		if (outcome == PaymentOutcome.FAILURE) return false;
 		if (outcome == PaymentOutcome.SUCCESS) return true;
@@ -469,6 +516,12 @@ public class PurchaseService {
 
 	private Payment insertPayment(Long purchaseId, Long fineId, Long paymentId, BigDecimal amount, String currency,
 			String state, String key, String errorCode) {
+		return insertPayment(purchaseId, fineId, paymentId, amount, currency, state, key, errorCode,
+				errorCode == null ? null : "Falla de cobro simulada o fondos insuficientes.");
+	}
+
+	private Payment insertPayment(Long purchaseId, Long fineId, Long paymentId, BigDecimal amount, String currency,
+			String state, String key, String errorCode, String errorDetail) {
 		long id = insert("""
 				INSERT INTO app_pagos(compra_id,multa_id,medio_pago_id,monto,moneda,estado,referencia_externa,
 					idempotency_key,error_codigo,error_detalle)
@@ -483,7 +536,7 @@ public class PurchaseService {
 			statement.setString(7, "SIM-" + UUID.randomUUID());
 			statement.setString(8, key);
 			statement.setString(9, errorCode);
-			statement.setString(10, errorCode == null ? null : "Falla de cobro simulada o fondos insuficientes.");
+			statement.setString(10, errorDetail);
 		});
 		return payment(id, false);
 	}
@@ -656,7 +709,7 @@ public class PurchaseService {
 				? addresses.findFirstByCuentaIdAndPrincipalTrueAndDeletedAtIsNull(accountId)
 				: addresses.findByIdAndCuentaIdAndDeletedAtIsNull(requestedId, accountId))
 				.map(com.example.quickbid.quickbid.entity.app.DireccionEnvio::getId)
-				.orElseThrow(() -> unprocessable("Direccion de envio requerida", "SHIPPING_ADDRESS_REQUIRED"));
+				.orElseThrow(() -> unprocessable("Dirección de envío requerida", "SHIPPING_ADDRESS_REQUIRED"));
 	}
 
 	private void freezeDeliveryAddress(Long purchaseId) {
@@ -669,7 +722,7 @@ public class PurchaseService {
 				SELECT alias,destinatario,calle,numero,piso,codigo_postal,localidad,provincia,pais,telefono
 				FROM app_direcciones_envio WHERE id=?
 				""", rs -> {
-			if (!rs.next()) throw unprocessable("Direccion de envio requerida", "SHIPPING_ADDRESS_REQUIRED");
+			if (!rs.next()) throw unprocessable("Dirección de envío requerida", "SHIPPING_ADDRESS_REQUIRED");
 			return "{"
 					+ json("alias", rs.getString("alias")) + ","
 					+ json("destinatario", rs.getString("destinatario")) + ","
@@ -825,18 +878,97 @@ public class PurchaseService {
 	}
 
 	private void createDocument(Long purchaseId, String type, String filename) {
-		long fileId = insert("""
-				INSERT INTO app_archivos(tipo_contexto,filename_original,content_type,size_bytes,storage_path,checksum)
-				VALUES ('documento_compra',?,'application/pdf',0,?,?)
-				""", statement -> {
-			statement.setString(1, filename);
-			statement.setString(2, "generated/purchases/" + purchaseId + "/" + filename);
-			statement.setString(3, "generated-" + type + "-" + purchaseId + "-" + UUID.randomUUID());
-		});
+		Purchase purchase = purchase(purchaseId);
+		Integer fineReceiptCount = jdbc.queryForObject("""
+				SELECT COUNT(*) FROM app_documentos
+				WHERE referencia_tipo='compra' AND referencia_id=? AND tipo='recibo_multa'
+				""", Integer.class, purchaseId);
+		boolean extrasAfterFine = type.equals("factura_compra") && fineReceiptCount != null && fineReceiptCount > 0;
+		List<String> lines = new ArrayList<>();
+		lines.add("Documento: " + (extrasAfterFine ? "Comprobante de extras" : purchaseDocumentLabel(type)));
+		lines.add("Referencia: COMPRA-" + purchaseId);
+		lines.add("Emitido: " + OffsetDateTime.now());
+		lines.add("Comprador: " + accountDisplayName(purchase.accountId()));
+		lines.add("Item: " + purchase.itemId() + " / Producto: " + purchase.productId());
+		lines.add("Estado: " + purchase.state());
+		BigDecimal documentTotal = BigDecimal.ZERO;
+		if (type.equals("recibo_multa")) {
+			lines.add("Artículo: " + purchase.amount() + " " + purchase.currency());
+			documentTotal = documentTotal.add(purchase.amount());
+			List<BigDecimal> fineAmounts = jdbc.query("""
+					SELECT monto FROM app_multas WHERE compra_id=? AND estado='pagada'
+					ORDER BY paid_at DESC NULLS LAST,id DESC LIMIT 1
+					""", (rs, row) -> rs.getBigDecimal(1), purchaseId);
+			BigDecimal fineAmount = fineAmounts.isEmpty() ? BigDecimal.ZERO : fineAmounts.get(0);
+			lines.add("Multa: " + fineAmount + " " + purchase.currency());
+			documentTotal = documentTotal.add(fineAmount);
+		} else {
+			if (!extrasAfterFine) {
+				lines.add("Monto de adjudicacion: " + purchase.amount() + " " + purchase.currency());
+				documentTotal = documentTotal.add(purchase.amount());
+			}
+			if (purchase.buyerCommission() != null) {
+				lines.add("Comision comprador: " + purchase.buyerCommission() + " " + purchase.currency());
+				documentTotal = documentTotal.add(purchase.buyerCommission());
+			}
+		}
+		List<DocumentDelivery> deliveries = jdbc.query("""
+				SELECT tipo,costo_envio,estado FROM app_entregas WHERE compra_id=?
+				""", (rs, row) -> new DocumentDelivery(rs.getString("tipo"), rs.getBigDecimal("costo_envio"),
+					rs.getString("estado")), purchaseId);
+		if (!deliveries.isEmpty()) {
+			DocumentDelivery delivery = deliveries.get(0);
+			if (!type.equals("recibo_multa")) {
+				lines.add("Entrega: " + delivery.type() + " / Estado: " + delivery.state());
+				lines.add("Costo de entrega: " + delivery.cost() + " " + purchase.currency());
+				documentTotal = documentTotal.add(delivery.cost());
+			}
+		}
+		lines.add("Total documentado: " + documentTotal + " " + purchase.currency());
+		lines.add("Validez: comprobante digital emitido por QuickBid.");
+		byte[] content = pdfs.generate("QuickBid", lines);
+		String storagePath = "db-generated/" + UUID.randomUUID() + ".pdf";
+		String checksum = HexFormat.of().formatHex(digest(content));
+		long fileId = files.save(new ArchivoApp(purchase.accountId(), "documento_compra", filename, "application/pdf",
+				(long) content.length, storagePath, checksum)).getId();
+		jdbc.update("UPDATE app_archivos SET content_bytes=? WHERE id=?", content, fileId);
 		jdbc.update("""
 				INSERT INTO app_documentos(tipo,referencia_tipo,referencia_id,archivo_id,estado)
 				VALUES (?,'compra',?,?,'disponible')
 				""", type, purchaseId, fileId);
+	}
+
+	private String purchaseDocumentLabel(String type) {
+		return switch (type) {
+			case "factura_compra" -> "Factura de compra";
+			case "recibo_multa" -> "Recibo de multa";
+			default -> type.replace('_', ' ');
+		};
+	}
+
+	private String accountDisplayName(Long accountId) {
+		List<String> names = jdbc.query("""
+				SELECT p.nombre FROM app_cuentas c
+				JOIN personas p ON p.identificador=c.persona_id
+				WHERE c.id=?
+				""", (rs, row) -> rs.getString(1), accountId);
+		return names.isEmpty() ? "Cuenta " + accountId : names.get(0);
+	}
+
+	private Document document(Long purchaseId, DocumentFile file) {
+		boolean available = file.sizeBytes() > 0
+				&& (file.contentBytes() != null && file.contentBytes().length > 0 || storage.exists(file.storagePath()));
+		String url = available ? "/api/compras/" + purchaseId + "/documentos/" + file.id() + "/descargar" : null;
+		return new Document(file.id(), file.type(), file.state(), file.fileId(), file.filename(), file.contentType(),
+				file.sizeBytes(), file.createdAt(), available, url);
+	}
+
+	private byte[] digest(byte[] content) {
+		try {
+			return MessageDigest.getInstance("SHA-256").digest(content);
+		} catch (java.security.NoSuchAlgorithmException exception) {
+			throw new IllegalStateException("SHA-256 no disponible", exception);
+		}
 	}
 
 	private String json(String field, String value) {
@@ -892,7 +1024,7 @@ public class PurchaseService {
 	}
 
 	private void checkPage(int page, int size) {
-		if (page < 0 || size < 1 || size > 100) throw new BusinessException(HttpStatus.BAD_REQUEST, "Paginacion invalida", "INVALID_PAGE");
+		if (page < 0 || size < 1 || size > 100) throw new BusinessException(HttpStatus.BAD_REQUEST, "Paginación inválida", "INVALID_PAGE");
 	}
 
 	private BusinessException forbidden(String message, String code) { return new BusinessException(HttpStatus.FORBIDDEN, message, code); }
@@ -932,6 +1064,9 @@ public class PurchaseService {
 	private record Commissions(BigDecimal buyer, BigDecimal seller) {
 	}
 
+	private record DocumentDelivery(String type, BigDecimal cost, String state) {
+	}
+
 	private record FineRow(Long id, Long accountId, BigDecimal amount, String state, OffsetDateTime expiresAt) {
 	}
 
@@ -943,5 +1078,8 @@ public class PurchaseService {
 	}
 
 	private record Reservation(Long id, String state) {
+	}
+
+	private record PaymentAttempt(boolean success, String errorCode, String errorDetail) {
 	}
 }

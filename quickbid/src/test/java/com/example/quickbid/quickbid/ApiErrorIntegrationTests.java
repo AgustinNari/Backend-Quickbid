@@ -21,7 +21,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.example.quickbid.quickbid.security.AuthRateLimitService;
 import com.jayway.jsonpath.JsonPath;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+		"app.mail.enabled=false",
+		"app.frontend.base-url=quickbid://auth"
+})
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Sql(scripts = "/auth-test-data.sql", executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
@@ -43,6 +46,40 @@ class ApiErrorIntegrationTests {
 				.andExpect(jsonPath("$.data").value(nullValue()))
 				.andExpect(jsonPath("$.message").isString())
 				.andExpect(jsonPath("$.errors.length()").value(greaterThan(0)));
+	}
+
+	@Test
+	void authLinkLandingsArePublicHtmlAndDoNotValidateTokens() throws Exception {
+		mvc.perform(get("/auth-links/recuperar-clave").param("token", "abc"))
+				.andExpect(status().isOk())
+				.andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+				.andExpect(content().string(org.hamcrest.Matchers.containsString("Abrir QuickBid")))
+				.andExpect(content().string(org.hamcrest.Matchers.containsString(
+						"quickbid://auth/recuperar-clave?token=abc")));
+
+		mvc.perform(get("/auth-links/completar-registro").param("token", "abc"))
+				.andExpect(status().isOk())
+				.andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+				.andExpect(content().string(org.hamcrest.Matchers.containsString(
+						"quickbid://auth/completar-registro?token=abc")));
+	}
+
+	@Test
+	void authLinkLandingHandlesMissingAndHtmlSensitiveTokensSafely() throws Exception {
+		mvc.perform(get("/auth-links/recuperar-clave"))
+				.andExpect(status().isBadRequest())
+				.andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+				.andExpect(content().string(org.hamcrest.Matchers.containsString("Enlace incompleto")));
+		mvc.perform(get("/auth-links/completar-registro"))
+				.andExpect(status().isBadRequest())
+				.andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML));
+
+		mvc.perform(get("/auth-links/recuperar-clave").param("token", "<script>alert('x')</script>"))
+				.andExpect(status().isOk())
+				.andExpect(content().string(org.hamcrest.Matchers.not(
+						org.hamcrest.Matchers.containsString("<script>"))))
+				.andExpect(content().string(org.hamcrest.Matchers.containsString("&lt;script&gt;")))
+				.andExpect(content().string(org.hamcrest.Matchers.containsString("%3Cscript%3E")));
 	}
 
 	@Test

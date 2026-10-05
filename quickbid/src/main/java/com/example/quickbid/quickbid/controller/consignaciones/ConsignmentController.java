@@ -4,6 +4,9 @@ import java.util.Arrays;
 import java.util.List;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.InvalidMediaTypeException;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -59,11 +62,12 @@ public class ConsignmentController {
 			@RequestParam(defaultValue = "false") Boolean esObraDeArte,
 			@RequestParam(required = false) String autor,
 			@RequestParam(required = false) String historiaExtendida,
+			@RequestParam(required = false) String idempotencyKey,
 			@RequestPart List<MultipartFile> fotos) {
 		Detail result = consignments.create(accountId(authentication), segmento, categoriaSubasta, aceptaTyC,
 				declaracionPropiedadYOrigenLicito, titulo, descripcion, historia, fechaAproximada,
-				esObraDeArte, autor, historiaExtendida, fotos);
-		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(result, "Consignacion creada"));
+				esObraDeArte, autor, historiaExtendida, idempotencyKey, fotos);
+		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(result, "Consignación creada"));
 	}
 
 	@PostMapping(value = "/{id}/documentacion-origen", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -72,7 +76,7 @@ public class ConsignmentController {
 			@RequestPart(required = false) MultipartFile certificadoAutenticidad,
 			@RequestParam(required = false) String observaciones) {
 		return ApiResponse.success(consignments.uploadOriginDocuments(accountId(authentication), id,
-				Arrays.asList(facturaCompra, certificadoAutenticidad), observaciones), "Documentacion enviada");
+				Arrays.asList(facturaCompra, certificadoAutenticidad), observaciones), "Documentación enviada");
 	}
 
 	@GetMapping
@@ -86,7 +90,25 @@ public class ConsignmentController {
 
 	@GetMapping("/{id}")
 	public ApiResponse<Detail> detail(Authentication authentication, @PathVariable Long id) {
-		return ApiResponse.success(consignments.detail(accountId(authentication), id), "Detalle de consignacion");
+		return ApiResponse.success(consignments.detail(accountId(authentication), id), "Detalle de consignación");
+	}
+
+	@GetMapping("/{id}/archivos/{archivoId}/descargar")
+	public ResponseEntity<byte[]> downloadFile(Authentication authentication, @PathVariable Long id,
+			@PathVariable Long archivoId) {
+		var file = consignments.downloadFile(accountId(authentication), id, archivoId);
+		MediaType contentType;
+		try {
+			contentType = MediaType.parseMediaType(file.contentType());
+		} catch (InvalidMediaTypeException exception) {
+			contentType = MediaType.APPLICATION_OCTET_STREAM;
+		}
+		return ResponseEntity.ok()
+				.contentType(contentType)
+				.header(HttpHeaders.CONTENT_DISPOSITION,
+						ContentDisposition.attachment().filename(file.filename(), java.nio.charset.StandardCharsets.UTF_8).build().toString())
+				.contentLength(file.content().length)
+				.body(file.content());
 	}
 
 	@PostMapping("/{id}/acuerdo/aceptar")
@@ -106,14 +128,14 @@ public class ConsignmentController {
 	public ResponseEntity<ApiResponse<Return>> returnSelection(Authentication authentication, @PathVariable Long id,
 			@Valid @RequestBody ConsignmentReturnRequest request) {
 		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(
-				consignments.selectReturn(accountId(authentication), id, request), "Devolucion registrada"));
+				consignments.selectReturn(accountId(authentication), id, request), "Devolución registrada"));
 	}
 
 	@PostMapping("/{id}/devolucion/preview")
 	public ApiResponse<ReturnPreview> returnPreview(Authentication authentication, @PathVariable Long id,
 			@Valid @RequestBody ConsignmentReturnRequest request) {
 		return ApiResponse.success(consignments.previewReturn(accountId(authentication), id, request),
-				"Cotizacion de devolucion");
+				"Cotización de devolución");
 	}
 
 	@PostMapping("/{id}/devolucion/pagar-envio")

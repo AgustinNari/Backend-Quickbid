@@ -38,6 +38,7 @@ public class SecurityConfig {
 								"/api/auth/recuperar-clave",
 								"/api/auth/cambiar-clave",
 								"/api/auth/logout",
+								"/auth-links/**",
 								"/actuator/health",
 								"/ws",
 								"/ws/**",
@@ -49,7 +50,8 @@ public class SecurityConfig {
 								"/api/subastas",
 								"/api/subastas/*",
 								"/api/subastas/*/catalogo",
-								"/api/items/*").permitAll()
+								"/api/items/*",
+								"/api/items/fotos/*").permitAll()
 						.requestMatchers("/api/admin/**").hasRole("ADMIN")
 						.anyRequest().authenticated())
 				.addFilterBefore(admin, UsernamePasswordAuthenticationFilter.class)

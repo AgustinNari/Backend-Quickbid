@@ -11,8 +11,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 import java.sql.Time;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -43,9 +47,10 @@ import com.example.quickbid.quickbid.service.AuctionTimerService;
 import com.example.quickbid.quickbid.service.PurchaseService;
 import com.example.quickbid.quickbid.service.PurchaseService.PaymentOutcome;
 import com.example.quickbid.quickbid.service.SimulatedMailService;
+import com.example.quickbid.quickbid.storage.StorageService;
 import com.jayway.jsonpath.JsonPath;
 
-@SpringBootTest
+@SpringBootTest(properties = "app.mail.enabled=false")
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Sql(scripts = "/auth-test-data.sql", executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
@@ -57,6 +62,7 @@ class PurchaseIntegrationTests {
 	@Autowired AuctionTimerService auctionTimers;
 	@Autowired SimulatedMailService mail;
 	@Autowired DataSource dataSource;
+	@Autowired StorageService storage;
 
 	@BeforeEach void clearLimits() {
 		limits.clear();
@@ -415,6 +421,53 @@ class PurchaseIntegrationTests {
 				.andExpect(jsonPath("$.errors[0].code").value("RESOURCE_NOT_FOUND"));
 	}
 
+	@Test void descargaDocumentoRealValidaOwnershipHeadersYContenido() throws Exception {
+		byte[] pdf = "%PDF-1.4\ndocumento real\n%%EOF\n".getBytes(StandardCharsets.ISO_8859_1);
+		var stored = storage.store("factura-real.pdf", "application/pdf", new ByteArrayInputStream(pdf));
+		jdbc.update("""
+				INSERT INTO app_archivos(id,owner_cuenta_id,tipo_contexto,filename_original,content_type,size_bytes,storage_path,checksum)
+				VALUES (5291,3001,'documento_compra','factura-real.pdf','application/pdf',?,?,?)
+				""", stored.sizeBytes(), stored.storagePath(), stored.checksum());
+		jdbc.update("INSERT INTO app_documentos(id,tipo,referencia_tipo,referencia_id,archivo_id,estado) VALUES (5391,'factura_compra','compra',13002,5291,'disponible')");
+
+		auth(get("/api/compras/13002/documentos"), "aprobado@quickbid.demo")
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data[0].downloadAvailable").value(true))
+				.andExpect(jsonPath("$.data[0].downloadUrl")
+						.value("/api/compras/13002/documentos/5391/descargar"));
+		auth(get("/api/compras/13002/documentos/5391/descargar"), "aprobado@quickbid.demo")
+				.andExpect(status().isOk())
+				.andExpect(content().contentType("application/pdf"))
+				.andExpect(header().string("Content-Disposition", containsString("factura-real.pdf")))
+				.andExpect(content().bytes(pdf));
+		auth(get("/api/compras/13002/documentos/5391/descargar"), "multa@quickbid.demo")
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.errors[0].code").value("RESOURCE_NOT_OWNED"));
+		auth(get("/api/compras/13002/documentos/99999/descargar"), "aprobado@quickbid.demo")
+				.andExpect(status().isNotFound());
+	}
+
+	@Test void descargaDocumentoFaltanteOConTraversalSeTrataComoNoDisponible() throws Exception {
+		jdbc.update("""
+				INSERT INTO app_archivos(id,owner_cuenta_id,tipo_contexto,filename_original,content_type,size_bytes,storage_path,checksum)
+				VALUES (5292,3001,'documento_compra','faltante.pdf','application/pdf',20,'missing/faltante.pdf','missing')
+				""");
+		jdbc.update("INSERT INTO app_documentos(id,tipo,referencia_tipo,referencia_id,archivo_id,estado) VALUES (5392,'faltante','compra',13002,5292,'disponible')");
+		jdbc.update("""
+				INSERT INTO app_archivos(id,owner_cuenta_id,tipo_contexto,filename_original,content_type,size_bytes,storage_path,checksum)
+				VALUES (5293,3001,'documento_compra','traversal.pdf','application/pdf',20,'../pom.xml','traversal')
+				""");
+		jdbc.update("INSERT INTO app_documentos(id,tipo,referencia_tipo,referencia_id,archivo_id,estado) VALUES (5393,'traversal','compra',13002,5293,'disponible')");
+
+		auth(get("/api/compras/13002/documentos"), "aprobado@quickbid.demo")
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data[0].downloadAvailable").value(false));
+		auth(get("/api/compras/13002/documentos/5392/descargar"), "aprobado@quickbid.demo")
+				.andExpect(status().isNotFound());
+		auth(get("/api/compras/13002/documentos/5393/descargar"), "aprobado@quickbid.demo")
+				.andExpect(status().isNotFound());
+	}
+
 	@Test void pagarConMultaPublicoFuncionaParaUsuarioRestringido() throws Exception {
 		auth(post("/api/compras/13001/pagar-con-multa").contentType(MediaType.APPLICATION_JSON)
 				.content("{\"medioPagoId\":5004,\"idempotencyKey\":\"fine-public-failed\"}"), "multa@quickbid.demo")
@@ -434,7 +487,28 @@ class PurchaseIntegrationTests {
 		assertEquals("activa", jdbc.queryForObject("SELECT estado FROM app_cuentas WHERE id=3002", String.class));
 		auth(get("/api/compras/13001/documentos"), "multa@quickbid.demo")
 				.andExpect(status().isOk())
-				.andExpect(jsonPath("$.data[0].tipo").value("recibo_multa"));
+				.andExpect(jsonPath("$.data[0].tipo").value("recibo_multa"))
+				.andExpect(jsonPath("$.data[0].downloadAvailable").value(true));
+		Long documentId = jdbc.queryForObject("""
+				SELECT d.id FROM app_documentos d JOIN app_archivos a ON a.id=d.archivo_id
+				WHERE d.referencia_tipo='compra' AND d.referencia_id=13001 AND d.tipo='recibo_multa'
+				""", Long.class);
+		byte[] persisted = jdbc.queryForObject("""
+				SELECT a.content_bytes FROM app_documentos d JOIN app_archivos a ON a.id=d.archivo_id
+				WHERE d.id=?
+				""", byte[].class, documentId);
+		assertTrue(persisted != null);
+		String pdfText = new String(persisted, StandardCharsets.ISO_8859_1);
+		assertTrue(pdfText.startsWith("%PDF"));
+		assertTrue(pdfText.contains("Referencia: COMPRA-13001"));
+		assertTrue(pdfText.contains("Artículo:"));
+		assertTrue(pdfText.contains("Multa:"));
+		assertTrue(pdfText.contains("Total documentado:"));
+		assertTrue(pdfText.contains("ARS"));
+		auth(get("/api/compras/13001/documentos/" + documentId + "/descargar"), "multa@quickbid.demo")
+				.andExpect(status().isOk())
+				.andExpect(result -> assertTrue(new String(result.getResponse().getContentAsByteArray(),
+						StandardCharsets.ISO_8859_1).startsWith("%PDF")));
 	}
 
 	@Test void pagoDeExtrasConsideraReservasActivasDelMedio() throws Exception {
@@ -454,6 +528,7 @@ class PurchaseIntegrationTests {
 		var purchase = purchases.closeLot(6203, PaymentOutcome.AUTO);
 		purchases.closeAuction(6203);
 		assertEquals("finalizada", jdbc.queryForObject("SELECT estado_operativo FROM app_subasta_ext WHERE subasta_id=6203", String.class));
+		assertEquals("abierta", jdbc.queryForObject("SELECT estado FROM subastas WHERE identificador=6203", String.class));
 
 		purchases.abandon(purchase.id(), false);
 		assertEquals("abandonada_por_incumplimiento_pago",
@@ -530,8 +605,16 @@ class PurchaseIntegrationTests {
 		jdbc.update("UPDATE \"itemsCatalogo\" SET subastado='si' WHERE identificador=9206");
 		jdbc.update("UPDATE app_subasta_estado_vivo SET item_catalogo_activo_id=NULL,subasta_finaliza_programado_at=DATEADD('SECOND',-1,CURRENT_TIMESTAMP) WHERE subasta_id=6205");
 		var finish = auctionTimers.processDueTimers();
+		var repeated = auctionTimers.processDueTimers();
 		assertEquals(1, finish.subastasFinalizadas());
+		assertEquals(0, repeated.subastasFinalizadas());
 		assertEquals("finalizada", jdbc.queryForObject("SELECT estado_operativo FROM app_subasta_ext WHERE subasta_id=6205", String.class));
+		assertEquals("abierta", jdbc.queryForObject("SELECT estado FROM subastas WHERE identificador=6205", String.class));
+		assertEquals(1, jdbc.queryForObject("""
+				SELECT COUNT(*) FROM app_subasta_estado_vivo WHERE subasta_id=6205
+				  AND retencion_hasta IS NULL AND lote_finaliza_estimado_at IS NULL
+				  AND proximo_lote_programado_at IS NULL AND subasta_finaliza_programado_at IS NULL
+				""", Integer.class));
 	}
 
 	private void close(CountDownLatch ready, CountDownLatch start, int auctionId) {

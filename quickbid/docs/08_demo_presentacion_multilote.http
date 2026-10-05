@@ -1,0 +1,122 @@
+@baseUrl = http://localhost:8080
+@adminKey = reemplazar-admin-key
+@tokenComprador1 = reemplazar-token-comprador-1
+@tokenComprador2 = reemplazar-token-comprador-2
+@subastaDemoId = 6011
+@item1Id = 9011
+@item2Id = 9012
+@item3Id = 9013
+@medioPagoComprador1 = 5001
+@medioPagoComprador2 = 5010
+
+### Login comprador 1
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "aprobado@quickbid.demo",
+  "clave": "Demo123!"
+}
+
+### Login comprador 2
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "comprador2@quickbid.demo",
+  "clave": "Demo123!"
+}
+
+### Ver subastas
+GET {{baseUrl}}/api/subastas?page=0&size=20
+
+### Verificar acceso/canBid comprador 1
+POST {{baseUrl}}/api/subastas/{{subastaDemoId}}/verificacion
+Authorization: Bearer {{tokenComprador1}}
+
+### Verificar acceso/canBid comprador 2
+POST {{baseUrl}}/api/subastas/{{subastaDemoId}}/verificacion
+Authorization: Bearer {{tokenComprador2}}
+
+### Preparar estado limpio demo
+POST {{baseUrl}}/api/admin/reset/demo
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### Abrir subasta demo
+POST {{baseUrl}}/api/admin/subastas/{{subastaDemoId}}/abrir
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### Activar siguiente lote por timer
+POST {{baseUrl}}/api/admin/subastas/timers/procesar
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### Obtener snapshot vivo comprador 1
+GET {{baseUrl}}/api/subastas/{{subastaDemoId}}/puja-actual
+Authorization: Bearer {{tokenComprador1}}
+
+### Pujar comprador 1
+POST {{baseUrl}}/api/subastas/{{subastaDemoId}}/pujar
+Authorization: Bearer {{tokenComprador1}}
+Content-Type: application/json
+
+{
+  "itemCatalogoId": {{item1Id}},
+  "monto": 50000,
+  "medioPagoId": {{medioPagoComprador1}},
+  "clientStateVersion": 2,
+  "idempotencyKey": "demo-6011-c1-item1-50000"
+}
+
+### Obtener snapshot vivo comprador 2
+GET {{baseUrl}}/api/subastas/{{subastaDemoId}}/puja-actual
+Authorization: Bearer {{tokenComprador2}}
+
+### Pujar comprador 2
+POST {{baseUrl}}/api/subastas/{{subastaDemoId}}/pujar
+Authorization: Bearer {{tokenComprador2}}
+Content-Type: application/json
+
+{
+  "itemCatalogoId": {{item1Id}},
+  "monto": 50500,
+  "medioPagoId": {{medioPagoComprador2}},
+  "clientStateVersion": 3,
+  "idempotencyKey": "demo-6011-c2-item1-50500"
+}
+
+### Cerrar lote actual con cobro exitoso
+POST {{baseUrl}}/api/admin/subastas/{{subastaDemoId}}/cerrar-lote?resultado=SUCCESS
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### Avanzar al siguiente lote cuando venza la programacion
+POST {{baseUrl}}/api/admin/subastas/timers/procesar
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### Activar lote 2 manualmente si no queres esperar el timer
+POST {{baseUrl}}/api/admin/subastas/{{subastaDemoId}}/item-activo
+X-QuickBid-Admin-Key: {{adminKey}}
+Content-Type: application/json
+
+{
+  "itemCatalogoId": {{item2Id}}
+}
+
+### Finalizar subasta despues del ultimo lote
+POST {{baseUrl}}/api/admin/subastas/{{subastaDemoId}}/cerrar
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### Ver compras comprador 1
+GET {{baseUrl}}/api/compras?page=0&size=20
+Authorization: Bearer {{tokenComprador1}}
+
+### Ver compras comprador 2
+GET {{baseUrl}}/api/compras?page=0&size=20
+Authorization: Bearer {{tokenComprador2}}
+
+### Ver consignaciones del consignador
+GET {{baseUrl}}/api/admin/consignaciones
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### Ver documentos de compra historica descargable
+GET {{baseUrl}}/api/compras/13002/documentos
+Authorization: Bearer {{tokenComprador1}}

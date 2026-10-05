@@ -71,45 +71,45 @@ public class UsuarioController {
 
 	@PatchMapping("/notificaciones/all/leer")
 	public ApiResponse<List<Notification>> readAll(Authentication a) {
-		return ApiResponse.success(usuarios.readAllNotifications(id(a)), "Notificaciones leidas");
+		return ApiResponse.success(usuarios.readAllNotifications(id(a)), "Notificaciones leídas");
 	}
 
 	@PatchMapping("/notificaciones/{id}/leer")
 	public ApiResponse<Notification> read(Authentication a, @PathVariable Long id) {
-		return ApiResponse.success(usuarios.readNotification(id(a), id), "Notificacion leida");
+		return ApiResponse.success(usuarios.readNotification(id(a), id), "Notificación leída");
 	}
 
 	@GetMapping("/direccion-envio")
 	public ApiResponse<Address> address(Authentication a) {
-		return ApiResponse.success(usuarios.address(id(a)), "Direccion de envio");
+		return ApiResponse.success(usuarios.address(id(a)), "Dirección de envío");
 	}
 
 	@PutMapping("/direccion-envio")
 	public ApiResponse<Address> updateAddress(Authentication a, @Valid @RequestBody DireccionEnvioRequest request) {
-		return ApiResponse.success(usuarios.updateAddress(id(a), request), "Direccion de envio actualizada");
+		return ApiResponse.success(usuarios.updateAddress(id(a), request), "Dirección de envío actualizada");
 	}
 
 	@GetMapping("/direcciones-envio")
 	public ApiResponse<List<Address>> addresses(Authentication a) {
-		return ApiResponse.success(usuarios.addresses(id(a)), "Direcciones de envio");
+		return ApiResponse.success(usuarios.addresses(id(a)), "Direcciones de envío");
 	}
 
 	@PostMapping("/direcciones-envio")
 	public ApiResponse<Address> createAddress(Authentication a, @Valid @RequestBody DireccionEnvioRequest request) {
-		return ApiResponse.success(usuarios.createAddress(id(a), request), "Direccion de envio creada");
+		return ApiResponse.success(usuarios.createAddress(id(a), request), "Dirección de envío creada");
 	}
 
 	@DeleteMapping("/direcciones-envio/{addressId}")
 	public ApiResponse<Void> deleteAddress(Authentication a, @PathVariable Long addressId) {
 		usuarios.deleteAddress(id(a), addressId);
-		return ApiResponse.success(null, "Direccion de envio eliminada");
+		return ApiResponse.success(null, "Dirección de envío eliminada");
 	}
 
 	@PatchMapping("/direcciones-envio/{addressId}/principal")
 	public ApiResponse<Address> principalAddress(Authentication a, @PathVariable Long addressId) {
 		return ApiResponse.success(
 				usuarios.setPrincipalAddress(id(a), addressId),
-				"Direccion principal actualizada");
+				"Dirección principal actualizada");
 	}
 
 	private Long id(Authentication authentication) {

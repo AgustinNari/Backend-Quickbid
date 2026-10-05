@@ -1,0 +1,389 @@
+### QuickBid - User control panel
+### Flujos de auth, perfil, direcciones, medios de pago y catalogos publicos.
+
+@baseUrl = http://localhost:8080
+# Para Render:
+# @baseUrl = https://REEMPLAZAR_BACKEND_RENDER_URL.onrender.com
+
+@passwordDemo = Demo123!
+@newPasswordDemo = Nueva123!
+
+@comprador1Email = aprobado@quickbid.demo
+@comprador2Email = comprador2@quickbid.demo
+@consignadorEmail = consignador@quickbid.demo
+@bloqueadoEmail = bloqueado@quickbid.demo
+@multaEmail = multa@quickbid.demo
+@categoriaEmail = categoria@quickbid.demo
+@nuevoEmail = nuevo-panel-http@quickbid.demo
+
+@paisId = 32
+@notificacionId = 18001
+@direccionId = 1
+@medioPagoId = 5001
+@setupToken = REEMPLAZAR_SETUP_TOKEN
+@resetToken = REEMPLAZAR_RESET_TOKEN
+@refreshTokenManual = REEMPLAZAR_REFRESH_TOKEN
+
+@tokenComprador1 = {{loginComprador1.response.body.$.data.accessToken}}
+@refreshComprador1 = {{loginComprador1.response.body.$.data.refreshToken}}
+@tokenComprador2 = {{loginComprador2.response.body.$.data.accessToken}}
+@tokenConsignador = {{loginConsignador.response.body.$.data.accessToken}}
+@tokenMulta = {{loginUsuarioMulta.response.body.$.data.accessToken}}
+@tokenBloqueado = {{loginUsuarioBloqueado.response.body.$.data.accessToken}}
+@tokenCategoria = {{loginUsuarioCategoria.response.body.$.data.accessToken}}
+
+### A. Auth - login comprador 1
+# @name loginComprador1
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{comprador1Email}}",
+  "clave": "{{passwordDemo}}"
+}
+
+### A. Auth - login comprador 2
+# @name loginComprador2
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{comprador2Email}}",
+  "clave": "{{passwordDemo}}"
+}
+
+### A. Auth - login consignador
+# @name loginConsignador
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{consignadorEmail}}",
+  "clave": "{{passwordDemo}}"
+}
+
+### A. Auth - login usuario con multa
+# @name loginUsuarioMulta
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{multaEmail}}",
+  "clave": "{{passwordDemo}}"
+}
+
+### A. Auth - login usuario bloqueado
+# @name loginUsuarioBloqueado
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{bloqueadoEmail}}",
+  "clave": "{{passwordDemo}}"
+}
+
+### A. Auth - login categoria insuficiente
+# @name loginUsuarioCategoria
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{categoriaEmail}}",
+  "clave": "{{passwordDemo}}"
+}
+
+### A. Auth - refresh con token capturado
+# @name refreshComprador1
+POST {{baseUrl}}/api/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refreshComprador1}}"
+}
+
+### A. Auth - refresh manual
+# @name refreshManual
+POST {{baseUrl}}/api/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refreshTokenManual}}"
+}
+
+### A. Auth - logout
+# @name logoutComprador1
+POST {{baseUrl}}/api/auth/logout
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refreshComprador1}}"
+}
+
+### A. Auth - sesion actual
+# @name sesionComprador1
+GET {{baseUrl}}/api/auth/sesion
+Authorization: Bearer {{tokenComprador1}}
+
+### A. Auth - recuperar clave
+# @name recuperarClave
+POST {{baseUrl}}/api/auth/recuperar-clave
+Content-Type: application/json
+
+{
+  "email": "{{comprador1Email}}"
+}
+
+### A. Auth - cambiar clave autenticado
+# @name cambiarClaveAutenticado
+PUT {{baseUrl}}/api/auth/cambiar-clave
+Authorization: Bearer {{tokenComprador1}}
+Content-Type: application/json
+
+{
+  "claveActual": "{{passwordDemo}}",
+  "claveNueva": "{{newPasswordDemo}}",
+  "claveConfirmacion": "{{newPasswordDemo}}"
+}
+
+### A. Auth - cambiar clave con token de recuperacion
+# @name cambiarClaveConToken
+PUT {{baseUrl}}/api/auth/cambiar-clave
+Content-Type: application/json
+
+{
+  "token": "{{resetToken}}",
+  "claveNueva": "{{newPasswordDemo}}",
+  "claveConfirmacion": "{{newPasswordDemo}}"
+}
+
+### A. Auth - registro etapa 1
+# @name registroEtapa1
+POST {{baseUrl}}/api/auth/registro/etapa1
+Content-Type: application/json
+
+{
+  "email": "{{nuevoEmail}}",
+  "nombre": "Nuevo",
+  "apellido": "Panel",
+  "domicilioLegal": "Calle HTTP 123",
+  "idPaisOrigen": {{paisId}}
+}
+
+### A. Auth - registro etapa 2 multipart con DNI frente/dorso
+# @name registroEtapa2
+POST {{baseUrl}}/api/auth/registro/etapa2?email={{nuevoEmail}}
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="fotoFrenteDni"; filename="dni-frente.png"
+Content-Type: image/png
+
+< ./fixtures/dni-frente.png
+--boundary
+Content-Disposition: form-data; name="fotoDorsoDni"; filename="dni-dorso.png"
+Content-Type: image/png
+
+< ./fixtures/dni-dorso.png
+--boundary--
+
+### A. Auth - verificar token de setup
+# @name verificarTokenRegistro
+POST {{baseUrl}}/api/auth/registro/verificar-token
+Content-Type: application/json
+
+{
+  "token": "{{setupToken}}"
+}
+
+### A. Auth - reenviar link de registro
+# @name reenviarLinkRegistro
+POST {{baseUrl}}/api/auth/registro/reenviar-link
+Content-Type: application/json
+
+{
+  "email": "{{nuevoEmail}}"
+}
+
+### A. Auth - registro etapa 3 completar cuenta
+# @name registroEtapa3
+POST {{baseUrl}}/api/auth/registro/etapa3
+Content-Type: application/json
+
+{
+  "setup_token": "{{setupToken}}",
+  "claveNueva": "{{passwordDemo}}",
+  "claveConfirmacion": "{{passwordDemo}}"
+}
+
+### B. Usuario - perfil
+# @name perfilComprador1
+GET {{baseUrl}}/api/usuario/perfil
+Authorization: Bearer {{tokenComprador1}}
+
+### B. Usuario - estadisticas total
+# @name estadisticasTotal
+GET {{baseUrl}}/api/usuario/estadisticas?periodo=total
+Authorization: Bearer {{tokenComprador1}}
+
+### B. Usuario - estadisticas mes
+# @name estadisticasMes
+GET {{baseUrl}}/api/usuario/estadisticas?periodo=mes
+Authorization: Bearer {{tokenComprador1}}
+
+### B. Usuario - historial
+# @name historialUsuario
+GET {{baseUrl}}/api/usuario/historial?page=0&size=20
+Authorization: Bearer {{tokenComprador1}}
+
+### B. Usuario - notificaciones
+# @name notificacionesUsuario
+GET {{baseUrl}}/api/usuario/notificaciones?page=0&size=20
+Authorization: Bearer {{tokenComprador1}}
+
+### B. Usuario - marcar notificacion leida
+# @name marcarNotificacionLeida
+PATCH {{baseUrl}}/api/usuario/notificaciones/{{notificacionId}}/leer
+Authorization: Bearer {{tokenComprador1}}
+
+### B. Usuario - marcar todas leidas
+# @name marcarTodasNotificacionesLeidas
+PATCH {{baseUrl}}/api/usuario/notificaciones/all/leer
+Authorization: Bearer {{tokenComprador1}}
+
+### B. Usuario - direccion legacy
+# @name direccionLegacy
+GET {{baseUrl}}/api/usuario/direccion-envio
+Authorization: Bearer {{tokenComprador1}}
+
+### B. Usuario - actualizar direccion legacy
+# @name actualizarDireccionLegacy
+PUT {{baseUrl}}/api/usuario/direccion-envio
+Authorization: Bearer {{tokenComprador1}}
+Content-Type: application/json
+
+{
+  "alias": "Casa",
+  "destinatario": "Ana Aprobada",
+  "calle": "Av. Siempre Viva",
+  "numero": "742",
+  "piso": "2B",
+  "codigoPostal": "1000",
+  "localidad": "CABA",
+  "provincia": "Buenos Aires",
+  "pais": "Argentina",
+  "telefono": "+5491100000000"
+}
+
+### B. Usuario - listar direcciones
+# @name listarDirecciones
+GET {{baseUrl}}/api/usuario/direcciones-envio
+Authorization: Bearer {{tokenComprador1}}
+
+### B. Usuario - crear direccion
+# @name crearDireccion
+POST {{baseUrl}}/api/usuario/direcciones-envio
+Authorization: Bearer {{tokenComprador1}}
+Content-Type: application/json
+
+{
+  "alias": "Oficina",
+  "destinatario": "Ana Aprobada",
+  "calle": "Av. Corrientes",
+  "numero": "1234",
+  "piso": "5A",
+  "codigoPostal": "1043",
+  "localidad": "CABA",
+  "provincia": "Buenos Aires",
+  "pais": "Argentina",
+  "telefono": "+5491100000000"
+}
+
+### B. Usuario - marcar direccion principal
+# @name marcarDireccionPrincipal
+PATCH {{baseUrl}}/api/usuario/direcciones-envio/{{direccionId}}/principal
+Authorization: Bearer {{tokenComprador1}}
+
+### B. Usuario - PELIGRO eliminar direccion
+# @name eliminarDireccion
+DELETE {{baseUrl}}/api/usuario/direcciones-envio/{{direccionId}}
+Authorization: Bearer {{tokenComprador1}}
+
+### C. Medios de pago - listar
+# @name listarMediosPago
+GET {{baseUrl}}/api/usuario/medios-pago
+Authorization: Bearer {{tokenComprador1}}
+
+### C. Medios de pago - crear tarjeta JSON
+# @name crearTarjeta
+POST {{baseUrl}}/api/usuario/medios-pago
+Authorization: Bearer {{tokenComprador1}}
+Content-Type: application/json
+
+{
+  "tipo": "tarjeta",
+  "moneda": "ARS",
+  "nacional": true,
+  "titular": "Ana Aprobada",
+  "numeroTarjeta": "4111111111111111",
+  "cvv": "123",
+  "vencimientoMes": 12,
+  "vencimientoAnio": 2030,
+  "marca": "Visa"
+}
+
+### C. Medios de pago - crear cuenta bancaria JSON
+# @name crearCuentaBancaria
+POST {{baseUrl}}/api/usuario/medios-pago
+Authorization: Bearer {{tokenComprador1}}
+Content-Type: application/json
+
+{
+  "tipo": "cuenta_bancaria",
+  "moneda": "ARS",
+  "nacional": true,
+  "titular": "Ana Aprobada",
+  "numeroCuenta": "000123456789",
+  "cbuCvu": "0000003100012345678901",
+  "nombreBanco": "Banco Demo",
+  "alias": "ANA.DEMO.ARS"
+}
+
+### C. Medios de pago - crear cheque multipart
+# @name crearChequeCertificado
+POST {{baseUrl}}/api/usuario/medios-pago?moneda=ARS&nacional=true&titular=Ana%20Aprobada&numeroCheque=CHQ-HTTP-001&monto=150000&fechaVencimiento=2026-12-31&bancoEmisor=Banco%20Demo
+Authorization: Bearer {{tokenComprador1}}
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="fotoAnverso"; filename="cheque-frente.png"
+Content-Type: image/png
+
+< ./fixtures/cheque-frente.png
+--boundary
+Content-Disposition: form-data; name="fotoReverso"; filename="cheque-dorso.png"
+Content-Type: image/png
+
+< ./fixtures/cheque-dorso.png
+--boundary--
+
+### C. Medios de pago - marcar principal
+# @name marcarMedioPrincipal
+PATCH {{baseUrl}}/api/usuario/medios-pago/{{medioPagoId}}/principal
+Authorization: Bearer {{tokenComprador1}}
+
+### C. Medios de pago - PELIGRO borrar medio
+# @name borrarMedioPago
+DELETE {{baseUrl}}/api/usuario/medios-pago/{{medioPagoId}}
+Authorization: Bearer {{tokenComprador1}}
+
+### D. Catalogos publicos - paises
+# @name catalogoPaises
+GET {{baseUrl}}/api/catalogos/paises?page=0&size=50
+
+### D. Catalogos publicos - buscar pais
+# @name catalogoBuscarPais
+GET {{baseUrl}}/api/catalogos/paises?q=arg
+
+### D. Catalogos publicos - detalle pais
+# @name catalogoDetallePais
+GET {{baseUrl}}/api/catalogos/paises/{{paisId}}

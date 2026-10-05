@@ -49,7 +49,7 @@ public class MedioPagoController {
 		return ResponseEntity.status(HttpStatus.CREATED)
 				.body(ApiResponse.success(
 						medios.create(id(a), r),
-						"Medio de pago pendiente de verificacion"));
+						"Medio de pago pendiente de verificación"));
 	}
 
 	@PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -77,7 +77,7 @@ public class MedioPagoController {
 								bancoEmisor,
 								fotoAnverso,
 								fotoReverso),
-						"Cheque pendiente de verificacion"));
+						"Cheque pendiente de verificación"));
 	}
 
 	@DeleteMapping("/{id}")

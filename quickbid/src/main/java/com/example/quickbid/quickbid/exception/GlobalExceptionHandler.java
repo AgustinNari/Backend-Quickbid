@@ -35,30 +35,30 @@ public class GlobalExceptionHandler {
 		List<ApiError> errors = exception.getBindingResult().getFieldErrors().stream()
 				.map(error -> new ApiError(error.getField(), "INVALID_FIELD", error.getDefaultMessage()))
 				.toList();
-		return ResponseEntity.badRequest().body(ApiResponse.failure("La solicitud contiene datos invalidos", errors));
+		return ResponseEntity.badRequest().body(ApiResponse.failure("La solicitud contiene datos inválidos", errors));
 	}
 
 	@ExceptionHandler(MissingServletRequestPartException.class)
 	public ResponseEntity<ApiResponse<Void>> handleMissingPart(MissingServletRequestPartException exception) {
 		ApiError error = new ApiError(exception.getRequestPartName(), "MISSING_FILE", "El archivo es obligatorio");
-		return ResponseEntity.badRequest().body(ApiResponse.failure("Falta documentacion requerida", List.of(error)));
+		return ResponseEntity.badRequest().body(ApiResponse.failure("Falta documentación requerida", List.of(error)));
 	}
 
 	@ExceptionHandler(MissingServletRequestParameterException.class)
 	public ResponseEntity<ApiResponse<Void>> handleMissingParameter(MissingServletRequestParameterException exception) {
-		ApiError error = new ApiError(exception.getParameterName(), "MISSING_PARAMETER", "El parametro es obligatorio");
+		ApiError error = new ApiError(exception.getParameterName(), "MISSING_PARAMETER", "El parámetro es obligatorio");
 		return ResponseEntity.badRequest().body(ApiResponse.failure("Faltan datos requeridos", List.of(error)));
 	}
 
 	@ExceptionHandler(MethodArgumentTypeMismatchException.class)
 	public ResponseEntity<ApiResponse<Void>> handleTypeMismatch(MethodArgumentTypeMismatchException exception) {
-		ApiError error = new ApiError(exception.getName(), "INVALID_PARAMETER", "El parametro tiene formato invalido");
-		return ResponseEntity.badRequest().body(ApiResponse.failure("La solicitud contiene datos invalidos", List.of(error)));
+		ApiError error = new ApiError(exception.getName(), "INVALID_PARAMETER", "El parámetro tiene formato inválido");
+		return ResponseEntity.badRequest().body(ApiResponse.failure("La solicitud contiene datos inválidos", List.of(error)));
 	}
 
 	@ExceptionHandler(HttpMessageNotReadableException.class)
 	public ResponseEntity<ApiResponse<Void>> handleUnreadableBody(HttpMessageNotReadableException exception) {
-		ApiError error = new ApiError(null, "INVALID_JSON", "El cuerpo JSON tiene formato invalido");
+		ApiError error = new ApiError(null, "INVALID_JSON", "El cuerpo JSON tiene formato inválido");
 		return ResponseEntity.badRequest().body(ApiResponse.failure("No se pudo interpretar la solicitud", List.of(error)));
 	}
 
@@ -73,13 +73,13 @@ public class GlobalExceptionHandler {
 	public ResponseEntity<ApiResponse<Void>> handleMailDeliveryException(MailDeliveryException exception) {
 		ApiError error = new ApiError(null, "MAIL_DELIVERY_FAILED", "No se pudo enviar el correo");
 		return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-				.body(ApiResponse.failure("El proveedor de correo no esta disponible", List.of(error)));
+				.body(ApiResponse.failure("El proveedor de correo no está disponible", List.of(error)));
 	}
 
 	@ExceptionHandler(Exception.class)
 	public ResponseEntity<ApiResponse<Void>> handleUnexpectedException(Exception exception) {
 		LOGGER.error("Unexpected server error", exception);
-		ApiError error = new ApiError(null, "INTERNAL_SERVER_ERROR", "Ocurrio un error interno");
+		ApiError error = new ApiError(null, "INTERNAL_SERVER_ERROR", "Ocurrió un error interno");
 		return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
 				.body(ApiResponse.failure("No se pudo procesar la solicitud", List.of(error)));
 	}

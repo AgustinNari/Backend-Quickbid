@@ -54,7 +54,7 @@ public class SubastaController {
 
 	@GetMapping("/{id}/catalogo")
 	public ApiResponse<?> catalog(@PathVariable Integer id, Authentication authentication) {
-		return ApiResponse.success(subastas.catalog(id, authentication != null), "Catalogo de subasta");
+		return ApiResponse.success(subastas.catalog(id, authentication != null), "Catálogo de subasta");
 	}
 
 	@PostMapping("/{id}/inscribirse")
@@ -62,12 +62,12 @@ public class SubastaController {
 			@RequestBody(required = false) InscripcionSubastaRequest request) {
 		Registration result = subastas.enroll(accountId(authentication), id, request == null ? null : request.medioPagoId());
 		HttpStatus status = result.existente() ? HttpStatus.OK : HttpStatus.CREATED;
-		return ResponseEntity.status(status).body(ApiResponse.success(result, result.existente() ? "Inscripcion existente" : "Inscripcion registrada"));
+		return ResponseEntity.status(status).body(ApiResponse.success(result, result.existente() ? "Inscripción existente" : "Inscripción registrada"));
 	}
 
 	@PostMapping("/{id}/verificacion")
 	public ApiResponse<Verification> verification(@PathVariable Integer id, Authentication authentication) {
-		return ApiResponse.success(subastas.verification(accountId(authentication), id), "Verificacion de acceso");
+		return ApiResponse.success(subastas.verification(accountId(authentication), id), "Verificación de acceso");
 	}
 
 	@GetMapping("/{id}/puja-actual")

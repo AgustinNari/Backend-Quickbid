@@ -25,15 +25,15 @@ public class SimulatedMailService implements MailService {
 	public void sendToken(String purpose, String email, String token) {
 		MailTemplates.Message template = templates.token(purpose, REDACTED_TOKEN);
 		deliveries.add(new Delivery("token", purpose, email, template.subject(), template.body()));
-		LOGGER.warn("SIMULATED LOCAL MAIL kind=token purpose={} email={} token delivery omitted because real mail is disabled",
-				purpose, email);
+		LOGGER.warn("SIMULATED LOCAL MAIL kind=token purpose={} token delivery omitted because real mail is disabled",
+				purpose);
 	}
 
 	@Override
 	public void sendNotification(String email, String type) {
 		MailTemplates.Message template = templates.notification(type);
 		deliveries.add(new Delivery("notification", type, email, template.subject(), template.body()));
-		LOGGER.warn("SIMULATED LOCAL MAIL kind=notification purpose={} email={} because real mail is disabled", type, email);
+		LOGGER.warn("SIMULATED LOCAL MAIL kind=notification purpose={} because real mail is disabled", type);
 	}
 
 	public List<Delivery> deliveries() {

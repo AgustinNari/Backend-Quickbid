@@ -31,6 +31,7 @@ import com.example.quickbid.quickbid.dto.response.SubastaDtos.PublicDetail;
 import com.example.quickbid.quickbid.dto.response.SubastaDtos.PublicItem;
 import com.example.quickbid.quickbid.dto.response.SubastaDtos.PublicSummary;
 import com.example.quickbid.quickbid.dto.response.SubastaDtos.Registration;
+import com.example.quickbid.quickbid.dto.response.SubastaDtos.Rematador;
 import com.example.quickbid.quickbid.dto.response.SubastaDtos.Verification;
 import com.example.quickbid.quickbid.entity.app.CuentaApp;
 import com.example.quickbid.quickbid.entity.app.InscripcionSubasta;
@@ -53,8 +54,20 @@ public class SubastaService {
 	private static final Set<String> CURRENCIES = Set.of("ARS", "USD");
 	private static final String AUCTION_SELECT = """
 			SELECT s.identificador, e.titulo, e.descripcion, s.fecha, s.hora, s.ubicacion,
-			       s.categoria, e.moneda, e.segmento, e.estado_operativo, e.permite_inscripcion_online
+			       s.categoria, e.moneda, e.segmento, e.estado_operativo, e.permite_inscripcion_online,
+			       p.nombre rematador_nombre, sub.matricula rematador_matricula, sub.region rematador_region,
+			       (
+			           SELECT '/api/items/fotos/' || f.identificador
+			           FROM catalogos c2
+			           JOIN "itemsCatalogo" i2 ON i2.catalogo=c2.identificador
+			           JOIN fotos f ON f.producto=i2.producto
+			           WHERE c2.subasta=s.identificador
+			           ORDER BY i2.identificador, f.identificador
+			           LIMIT 1
+			       ) imagen_principal_url
 			FROM subastas s JOIN app_subasta_ext e ON e.subasta_id=s.identificador
+			LEFT JOIN subastadores sub ON sub.identificador=s.subastador
+			LEFT JOIN personas p ON p.identificador=sub.identificador
 			""";
 
 	private final JdbcTemplate jdbc;
@@ -137,7 +150,8 @@ public class SubastaService {
 				""", rs -> {
 			if (!rs.next()) throw notFound("Item inexistente");
 			return item(rs.getInt("identificador"), rs.getInt("producto"), rs.getString("descripcionCatalogo"),
-					rs.getBigDecimal("precioBase"), rs.getBigDecimal("comision"), authenticated);
+					rs.getBigDecimal("precioBase"), rs.getBigDecimal("comision"), authenticated, null, "sin_estado",
+					false, false, null, null, null);
 		}, id);
 	}
 
@@ -181,10 +195,10 @@ public class SubastaService {
 			throw forbidden("La cuenta no puede inscribirse", "ACCOUNT_RESTRICTED_BY_FINE");
 		}
 		if (categoryOrder(cuenta.getCategoriaCalculada()) < categoryOrder(auction.categoria())) {
-			throw forbidden("Categoria insuficiente", "AUCTION_CATEGORY_FORBIDDEN");
+			throw forbidden("Categoría insuficiente", "AUCTION_CATEGORY_FORBIDDEN");
 		}
 		if (!enrollmentOpen(auction)) {
-			throw conflict("La inscripcion ya cerro", "AUCTION_ENROLLMENT_CLOSED");
+			throw conflict("La inscripción ya cerró", "AUCTION_ENROLLMENT_CLOSED");
 		}
 		var existing = inscripciones.findFirstBySubastaIdAndCuentaIdAndEstadoInOrderByCreatedAtDesc(
 				subastaId, cuentaId, ACTIVE_ENROLLMENT_STATES);
@@ -192,8 +206,8 @@ public class SubastaService {
 		MedioPago medio = selectEnrollmentPayment(cuentaId, auction.moneda(), medioPagoId);
 		boolean review = requiresReview(medio);
 		InscripcionSubasta enrollment = inscripciones.save(new InscripcionSubasta(subastaId, cuentaId, medio.getId(), review));
-		notificaciones.save(new NotificacionApp(cuentaId, "inscripcion_subasta", "Inscripcion registrada",
-				review ? "Tu inscripcion quedo pendiente de revision del medio de pago." : "Tu inscripcion fue aprobada.",
+		notificaciones.save(new NotificacionApp(cuentaId, "inscripcion_subasta", "Inscripción registrada",
+				review ? "Tu inscripción quedó pendiente de revisión del medio de pago." : "Tu inscripción fue aprobada.",
 				"subasta", subastaId.longValue()));
 		audit.record(new AuditEvent("usuario", cuentaId, "subasta.inscripcion_creada", "subasta", subastaId.longValue(),
 				"{\"medioPagoId\":" + medio.getId() + "}"));
@@ -206,7 +220,8 @@ public class SubastaService {
 		if (verification.cuentaBloqueada()) throw forbidden("La cuenta no puede ver informacion live", "ACCOUNT_BLOCKED");
 		Auction auction = auction(subastaId);
 		return jdbc.query("""
-				SELECT v.item_catalogo_activo_id,v.version,v.retencion_hasta,i."precioBase",
+				SELECT v.item_catalogo_activo_id,v.version,v.retencion_hasta,v.lote_finaliza_estimado_at,
+				       v.proximo_lote_programado_at,v.subasta_finaliza_programado_at,i."precioBase",
 				       (SELECT MAX(p.monto) FROM app_pujas_live p
 				        WHERE p.subasta_id=v.subasta_id AND p.item_catalogo_id=v.item_catalogo_activo_id
 				          AND p.estado IN ('aceptada','ganadora')) mejor_oferta,
@@ -221,18 +236,50 @@ public class SubastaService {
 			if (!rs.next()) throw notFound("Estado vivo inexistente");
 			OffsetDateTime now = OffsetDateTime.now();
 			OffsetDateTime retentionUntil = rs.getObject("retencion_hasta", OffsetDateTime.class);
-			Long remaining = retentionUntil == null ? null
-					: Math.max(0, java.time.Duration.between(now, retentionUntil).toSeconds());
+			OffsetDateTime lotDeadline = rs.getObject("lote_finaliza_estimado_at", OffsetDateTime.class);
+			OffsetDateTime nextLotAt = rs.getObject("proximo_lote_programado_at", OffsetDateTime.class);
+			OffsetDateTime closeAuctionAt = rs.getObject("subasta_finaliza_programado_at", OffsetDateTime.class);
 			Long bestAccountId = (Long) rs.getObject("mejor_postor_id");
 			Integer activeItem = (Integer) rs.getObject("item_catalogo_activo_id");
 			BigDecimal basePrice = rs.getBigDecimal("precioBase");
-			return new CurrentBid(subastaId, (Integer) rs.getObject("item_catalogo_activo_id"),
-					rs.getBigDecimal("mejor_oferta"), auction.moneda(), rs.getLong("version"), verification.puedePujar(),
+			BigDecimal bestOffer = rs.getBigDecimal("mejor_oferta");
+			if (activeItem == null) {
+				boolean finished = auction.estadoOperativo().equals("finalizada");
+				OffsetDateTime deadline = nextLotAt != null ? nextLotAt : closeAuctionAt;
+				String timerType = nextLotAt != null ? "esperando_proximo_lote"
+						: closeAuctionAt != null ? "cerrando_subasta" : null;
+				String state = finished ? "finalizada" : timerType != null ? timerType : "cerrado";
+				String message = nextLotAt != null
+						? "Preparando próximo lote."
+						: closeAuctionAt != null ? "Subasta en cierre." : finished ? "La subasta finalizó." : null;
+				NextLot nextLot = nextLot(subastaId);
+				return new CurrentBid(subastaId, null, bestOffer, auction.moneda(), rs.getLong("version"),
+						verification.puedePujar(), verification.puedePujar() ? null
+								: "El usuario puede ver live pero no cumple las condiciones para pujar",
+						basePrice, minimumIncrement(auction.categoria(), basePrice), now, null,
+						remainingSeconds(now, deadline), bestAccountId != null && bestAccountId.equals(cuentaId),
+						state, true, finished ? "volver" : "esperar_siguiente_lote", false, deadline != null,
+						message, deadline, timerType, nextLotAt, closeAuctionAt,
+						nextLot == null ? null : nextLot.itemId(), nextLot == null ? null : nextLot.order());
+			}
+			OffsetDateTime deadline = retentionUntil != null ? retentionUntil : lotDeadline;
+			Long remaining = remainingSeconds(now, deadline);
+			boolean waitingFirstBid = bestOffer == null && retentionUntil == null && lotDeadline == null;
+			String timerType = retentionUntil != null ? "retencion_ganadora"
+					: lotDeadline != null ? "sin_pujas_empresa"
+					: waitingFirstBid ? "esperando_primera_puja" : null;
+			boolean finished = auction.estadoOperativo().equals("finalizada");
+			String state = finished ? "finalizada" : "activo";
+			String message = waitingFirstBid
+					? "Esperando primera puja. El timer inicia con la primera oferta."
+					: finished ? "La subasta finalizó." : null;
+			return new CurrentBid(subastaId, activeItem,
+					bestOffer, auction.moneda(), rs.getLong("version"), verification.puedePujar(),
 					verification.puedePujar() ? null : "El usuario puede ver live pero no cumple las condiciones para pujar",
 					basePrice, minimumIncrement(auction.categoria(), basePrice), now,
 					retentionUntil, remaining, bestAccountId != null && bestAccountId.equals(cuentaId),
-					activeItem == null ? "cerrado" : "activo", activeItem == null,
-					activeItem == null ? "esperar_siguiente_lote" : "pujar");
+					state, false, "pujar", waitingFirstBid, deadline != null, message, deadline,
+					timerType, nextLotAt, closeAuctionAt, null, null);
 		}, subastaId);
 	}
 
@@ -245,20 +292,110 @@ public class SubastaService {
 
 	private List<?> items(Integer catalogId, boolean authenticated) {
 		return jdbc.query("""
-				SELECT i.identificador,i.producto,p."descripcionCatalogo",i."precioBase",i.comision
-				FROM "itemsCatalogo" i JOIN productos p ON p.identificador=i.producto
+				SELECT i.identificador,i.producto,p."descripcionCatalogo",i."precioBase",i.comision,
+				       ROW_NUMBER() OVER (ORDER BY i.identificador) orden_lote,
+				       i.subastado,v.item_catalogo_activo_id,co.id compra_id,co.comprador_empresa
+				FROM "itemsCatalogo" i
+				JOIN productos p ON p.identificador=i.producto
+				JOIN catalogos c ON c.identificador=i.catalogo
+				LEFT JOIN app_subasta_estado_vivo v ON v.subasta_id=c.subasta
+				LEFT JOIN app_compras co ON co.item_catalogo_id=i.identificador
 				WHERE i.catalogo=? ORDER BY i.identificador
-				""", (rs, row) -> item(rs.getInt("identificador"), rs.getInt("producto"),
-				rs.getString("descripcionCatalogo"), rs.getBigDecimal("precioBase"), rs.getBigDecimal("comision"),
-				authenticated), catalogId);
+				""", (rs, row) -> {
+			Integer itemId = rs.getInt("identificador");
+			Integer activeItem = (Integer) rs.getObject("item_catalogo_activo_id");
+			boolean active = activeItem != null && activeItem.equals(itemId);
+			boolean auctioned = "si".equalsIgnoreCase(rs.getString("subastado"));
+			Long purchaseId = (Long) rs.getObject("compra_id");
+			Boolean companyBuyer = (Boolean) rs.getObject("comprador_empresa");
+			String state = catalogItemState(active, auctioned, purchaseId, companyBuyer);
+			String result = catalogItemResult(state);
+			return item(itemId, rs.getInt("producto"), rs.getString("descripcionCatalogo"),
+					rs.getBigDecimal("precioBase"), rs.getBigDecimal("comision"), authenticated,
+					rs.getInt("orden_lote"), state, active, auctioned, result,
+					authenticated ? purchaseId : null, authenticated ? companyBuyer : null);
+		}, catalogId);
 	}
 
 	private Object item(Integer id, Integer productId, String description, BigDecimal base, BigDecimal commission,
-			boolean authenticated) {
+			boolean authenticated, Integer order, String state, Boolean active, Boolean auctioned, String result,
+			Long purchaseId, Boolean companyBuyer) {
 		List<Integer> photoIds = jdbc.query("SELECT identificador FROM fotos WHERE producto=? ORDER BY identificador",
 				(rs, row) -> rs.getInt(1), productId);
-		return authenticated ? new AuthenticatedItem(id, productId, description, photoIds, base, commission)
-				: new PublicItem(id, productId, description, photoIds);
+		List<String> photoUrls = photoIds.stream().map(this::photoUrl).toList();
+		String mainPhotoUrl = photoUrls.isEmpty() ? null : photoUrls.get(0);
+		ItemMetadata metadata = itemMetadata(id, productId);
+		return authenticated ? new AuthenticatedItem(id, productId, description, photoIds, photoUrls, mainPhotoUrl,
+				base, commission, order, state, state, active, auctioned, result, purchaseId, companyBuyer,
+				metadata.ownerLabel(), metadata.objectDate(), metadata.history(), metadata.extendedHistory(),
+				metadata.artist(), metadata.segment(), metadata.category(), metadata.consignmentId())
+				: new PublicItem(id, productId, description, photoIds, photoUrls, mainPhotoUrl, order, "sin_estado",
+						"sin_estado", null, null, null, null, null, metadata.ownerLabel(), metadata.objectDate(),
+						metadata.history(), metadata.extendedHistory(), metadata.artist(), metadata.segment(),
+						metadata.category(), metadata.consignmentId());
+	}
+
+	private ItemMetadata itemMetadata(Integer itemId, Integer productId) {
+		List<ItemMetadata> values = jdbc.query("""
+				SELECT s.id consignacion_id,s.historia,s.historia_extendida,s.artista_disenador,s.fecha_objeto,
+				       s.segmento,s.categoria_sugerida,
+				       CASE WHEN p.duenio IS NULL THEN NULL ELSE 'Propietario registrado' END duenio_actual
+				FROM productos p
+				LEFT JOIN app_solicitudes_consignacion s ON s.id=(
+				    SELECT sx.id FROM app_solicitudes_consignacion sx
+				    WHERE sx.item_catalogo_id=? OR sx.producto_id=?
+				    ORDER BY CASE WHEN sx.item_catalogo_id=? THEN 0 ELSE 1 END, sx.id DESC
+				    LIMIT 1
+				)
+				WHERE p.identificador=?
+				""", (rs, row) -> new ItemMetadata((Long) rs.getObject("consignacion_id"),
+						rs.getString("duenio_actual"), rs.getString("fecha_objeto"), rs.getString("historia"),
+						rs.getString("historia_extendida"), rs.getString("artista_disenador"),
+						rs.getString("segmento"), rs.getString("categoria_sugerida")),
+				itemId, productId, itemId, productId);
+		return values.isEmpty() ? ItemMetadata.empty() : values.get(0);
+	}
+
+	private String catalogItemState(boolean active, boolean auctioned, Long purchaseId, Boolean companyBuyer) {
+		if (active) return "en_vivo";
+		if (auctioned && purchaseId != null && Boolean.TRUE.equals(companyBuyer)) return "comprado_por_empresa";
+		if (auctioned && purchaseId != null) return "vendido";
+		if (auctioned) return "no_vendido";
+		return "pendiente";
+	}
+
+	private String catalogItemResult(String state) {
+		return switch (state) {
+			case "vendido" -> "adjudicado";
+			case "comprado_por_empresa" -> "comprado_por_empresa";
+			case "no_vendido" -> "no_vendido";
+			default -> null;
+		};
+	}
+
+	private Long remainingSeconds(OffsetDateTime now, OffsetDateTime deadline) {
+		if (deadline == null) return null;
+		return Math.max(0, java.time.Duration.between(now, deadline).toSeconds());
+	}
+
+	private NextLot nextLot(Integer subastaId) {
+		List<NextLot> values = jdbc.query("""
+				SELECT item_id,orden_lote FROM (
+					SELECT i.identificador item_id,ROW_NUMBER() OVER (ORDER BY i.identificador) orden_lote,i.subastado
+					FROM "itemsCatalogo" i JOIN catalogos c ON c.identificador=i.catalogo
+					WHERE c.subasta=?
+				) ordered
+				WHERE subastado='no'
+				ORDER BY orden_lote LIMIT 1
+				""", (rs, row) -> new NextLot(rs.getInt("item_id"), rs.getInt("orden_lote")), subastaId);
+		return values.isEmpty() ? null : values.get(0);
+	}
+
+	private record NextLot(Integer itemId, Integer order) {
+	}
+
+	private String photoUrl(Integer photoId) {
+		return "/api/items/fotos/" + photoId;
 	}
 
 	private MedioPago selectEnrollmentPayment(Long cuentaId, String currency, Long medioPagoId) {
@@ -331,21 +468,45 @@ public class SubastaService {
 		return new Auction(rs.getInt("identificador"), rs.getString("titulo"), rs.getString("descripcion"),
 				date.toLocalDate(), time.toLocalTime(), rs.getString("ubicacion"), rs.getString("categoria"),
 				rs.getString("moneda"), rs.getString("segmento"), rs.getString("estado_operativo"),
-				rs.getBoolean("permite_inscripcion_online"));
+				rs.getBoolean("permite_inscripcion_online"),
+				rematador(rs.getString("rematador_nombre"), rs.getString("rematador_matricula"),
+						rs.getString("rematador_region")),
+				rs.getString("imagen_principal_url"));
 	}
 
 	private Object summary(Auction a, boolean authenticated) {
 		if (authenticated) return new AuthenticatedSummary(a.id(), a.title(), a.description(), a.date(), a.time(),
-				a.location(), a.category(), a.currency(), a.segment(), a.operationalState());
+				a.location(), a.category(), a.currency(), a.segment(), a.operationalState(), a.mainImageUrl());
 		return new PublicSummary(a.id(), a.title(), a.description(), a.date(), a.time(), a.location(), a.category(),
-				a.currency(), a.segment(), publicState(a.operationalState(), false));
+				a.currency(), a.segment(), publicState(a.operationalState(), false), a.mainImageUrl());
 	}
 
 	private Object detail(Auction a, boolean authenticated) {
 		if (authenticated) return new AuthenticatedDetail(a.id(), a.title(), a.description(), a.date(), a.time(),
-				a.location(), a.category(), a.currency(), a.segment(), a.operationalState(), a.allowsEnrollment(), true);
+				a.location(), a.category(), a.currency(), a.segment(), a.operationalState(), a.allowsEnrollment(), true,
+				a.auctioneer(), a.mainImageUrl());
 		return new PublicDetail(a.id(), a.title(), a.description(), a.date(), a.time(), a.location(), a.category(),
-				a.currency(), a.segment(), publicState(a.operationalState(), false));
+				a.currency(), a.segment(), publicState(a.operationalState(), false), a.auctioneer(), a.mainImageUrl());
+	}
+
+	private Rematador rematador(String name, String license, String region) {
+		if (blank(name) && blank(license) && blank(region)) return null;
+		return new Rematador(cleanVisibleSeedText(name), cleanVisibleSeedText(license), blankToNull(region));
+	}
+
+	private String cleanVisibleSeedText(String value) {
+		String normalized = blankToNull(value);
+		if (normalized == null) return null;
+		return normalized.replace("Martillero Demo", "Martillero QuickBid")
+				.replace("MAT-DEMO-", "MAT-QB-");
+	}
+
+	private boolean blank(String value) {
+		return value == null || value.isBlank();
+	}
+
+	private String blankToNull(String value) {
+		return blank(value) ? null : value.trim();
 	}
 
 	@SuppressWarnings("unchecked")
@@ -398,7 +559,7 @@ public class SubastaService {
 	}
 
 	private void checkPage(int page, int size) {
-		if (page < 0 || size < 1 || size > 100) throw bad("Paginacion invalida", "INVALID_PAGE");
+		if (page < 0 || size < 1 || size > 100) throw bad("Paginación inválida", "INVALID_PAGE");
 	}
 
 	private BusinessException bad(String message, String code) { return new BusinessException(HttpStatus.BAD_REQUEST, message, code); }
@@ -408,10 +569,18 @@ public class SubastaService {
 	private BusinessException notFound(String message) { return new BusinessException(HttpStatus.NOT_FOUND, message, "RESOURCE_NOT_FOUND"); }
 
 	private record Auction(Integer id, String title, String description, LocalDate date, LocalTime time, String location,
-			String category, String currency, String segment, String operationalState, boolean allowsEnrollment) {
+			String category, String currency, String segment, String operationalState, boolean allowsEnrollment,
+			Rematador auctioneer, String mainImageUrl) {
 		LocalDateTime start() { return LocalDateTime.of(date, time); }
 		String categoria() { return category; }
 		String moneda() { return currency; }
 		String estadoOperativo() { return operationalState; }
+	}
+
+	private record ItemMetadata(Long consignmentId, String ownerLabel, String objectDate, String history,
+			String extendedHistory, String artist, String segment, String category) {
+		static ItemMetadata empty() {
+			return new ItemMetadata(null, null, null, null, null, null, null, null);
+		}
 	}
 }

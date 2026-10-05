@@ -8,8 +8,12 @@ import org.springframework.mail.MailSendException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.example.quickbid.quickbid.repository.app.CuentaAppRepository;
+
 import java.io.InputStream;
 import java.util.Properties;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -17,27 +21,97 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 class MailServiceTests {
 
     @Test
-    void usesSimulatedMailServiceByDefault() {
+    void usesSimulatedMailServiceWhenDisabled() {
         new ApplicationContextRunner()
-                .withUserConfiguration(MailTemplates.class, SimulatedMailService.class, SmtpMailService.class)
+                .withUserConfiguration(MailTemplates.class, SimulatedMailService.class,
+                        SmtpMailService.class, ResendMailService.class, BrevoMailService.class,
+                        InvalidMailProviderService.class)
                 .withBean(JavaMailSender.class, StubJavaMailSender::new)
+                .withBean(ObjectMapper.class, ObjectMapper::new)
+                .withPropertyValues("app.mail.enabled=false")
                 .run(context -> assertInstanceOf(SimulatedMailService.class, context.getBean(MailService.class)));
     }
 
     @Test
     void usesSmtpMailServiceWhenEnabled() {
         new ApplicationContextRunner()
-                .withUserConfiguration(MailTemplates.class, SimulatedMailService.class, SmtpMailService.class)
+                .withUserConfiguration(MailTemplates.class, SimulatedMailService.class,
+                        SmtpMailService.class, ResendMailService.class, BrevoMailService.class,
+                        InvalidMailProviderService.class)
+                .withBean(JavaMailSender.class, StubJavaMailSender::new)
+                .withBean(ObjectMapper.class, ObjectMapper::new)
+                .withPropertyValues(
+                        "app.mail.enabled=true",
+                        "app.mail.from=no-reply@quickbid.demo",
+                        "spring.mail.host=smtp.quickbid.demo",
+                        "spring.mail.username=usuario-smtp",
+                        "spring.mail.password=password-smtp"
+                )
+                .run(context -> assertInstanceOf(SmtpMailService.class, context.getBean(MailService.class)));
+    }
+
+    @Test
+    void usesResendMailServiceWhenEnabledAndSelected() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(MailTemplates.class, SimulatedMailService.class,
+                        SmtpMailService.class, ResendMailService.class, BrevoMailService.class,
+                        InvalidMailProviderService.class)
+                .withBean(JavaMailSender.class, StubJavaMailSender::new)
+                .withBean(ObjectMapper.class, ObjectMapper::new)
+                .withPropertyValues(
+                        "app.mail.enabled=true",
+                        "app.mail.provider=resend",
+                        "app.mail.from=no-reply@quickbid.demo",
+                        "app.resend.api-key=test-only-resend-key",
+                        "app.resend.api-url=https://api.resend.test/emails"
+                )
+                .run(context -> assertInstanceOf(ResendMailService.class, context.getBean(MailService.class)));
+    }
+
+    @Test
+    void startsWithBrevoWithoutExternalObjectMapperBean() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(MailTemplates.class, SimulatedMailService.class,
+                        SmtpMailService.class, ResendMailService.class, BrevoMailService.class,
+                        InvalidMailProviderService.class)
                 .withBean(JavaMailSender.class, StubJavaMailSender::new)
                 .withPropertyValues(
                         "app.mail.enabled=true",
-                        "app.mail.from=no-reply@quickbid.demo"
+                        "app.mail.provider=brevo",
+                        "app.mail.from=QuickBid App <ayuda.breakbuddy@gmail.com>",
+                        "app.brevo.api-key=test-key",
+                        "app.brevo.api-url=https://api.brevo.test/v3/smtp/email",
+                        "app.brevo.timeout-seconds=10"
                 )
-                .run(context -> assertInstanceOf(SmtpMailService.class, context.getBean(MailService.class)));
+                .run(context -> {
+                    assertInstanceOf(BrevoMailService.class, context.getBean(MailService.class));
+                    assertEquals(1, context.getBeansOfType(MailService.class).size());
+                });
+    }
+
+    @Test
+    void invalidEnabledProviderFailsClearly() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(MailTemplates.class, SimulatedMailService.class,
+                        SmtpMailService.class, ResendMailService.class, BrevoMailService.class,
+                        InvalidMailProviderService.class)
+                .withBean(JavaMailSender.class, StubJavaMailSender::new)
+                .withBean(ObjectMapper.class, ObjectMapper::new)
+                .withPropertyValues(
+                        "app.mail.enabled=true",
+                        "app.mail.provider=desconocido"
+                )
+                .run(context -> {
+                    assertNotNull(context.getStartupFailure());
+                    assertTrue(allMessages(context.getStartupFailure())
+                            .contains("APP_MAIL_PROVIDER no soportado; usar smtp, resend o brevo"));
+                });
     }
 
     @Test
@@ -66,7 +140,7 @@ class MailServiceTests {
     void smtpMailBuildsRecoveryLinkAndSendsMessage() {
         StubJavaMailSender sender = new StubJavaMailSender();
         MailTemplates templates = new MailTemplates("https://frontend.quickbid.demo");
-        SmtpMailService mail = new SmtpMailService(sender, templates, "no-reply@quickbid.demo");
+        SmtpMailService mail = smtp(sender, templates);
 
         mail.sendToken("recuperacion", "usuario@quickbid.demo", "token con /+");
 
@@ -76,7 +150,7 @@ class MailServiceTests {
         assertTrue(sender.lastMessage.getText().contains(
                 "https://frontend.quickbid.demo/recuperar-clave?token=token+con+%2F%2B"
         ));
-        assertTrue(sender.lastMessage.getText().contains("Si no solicitaste esto, podes ignorar este mensaje."));
+        assertTrue(sender.lastMessage.getText().contains("Si no solicitaste esto, podés ignorar este mensaje."));
     }
 
     @Test
@@ -102,6 +176,29 @@ class MailServiceTests {
     }
 
     @Test
+    void tokenTemplatesUsePublicHttpsLinksWithTextAndHtmlFallbacks() {
+        MailTemplates templates = new MailTemplates(
+                "quickbid://auth", "https://quickbid-backend.demo/");
+
+        MailTemplates.Message setup = templates.token("registro", "token con /+");
+        MailTemplates.Message reset = templates.token("recuperacion", "token con /+");
+
+        assertTrue(setup.textContent().contains(
+                "https://quickbid-backend.demo/auth-links/completar-registro?token=token+con+%2F%2B"));
+        assertTrue(reset.textContent().contains(
+                "https://quickbid-backend.demo/auth-links/recuperar-clave?token=token+con+%2F%2B"));
+        assertTrue(setup.textContent().contains("token con /+"));
+        assertTrue(reset.textContent().contains("token con /+"));
+        assertTrue(setup.htmlContent().contains("Continuar en QuickBid"));
+        assertTrue(reset.htmlContent().contains("Continuar en QuickBid"));
+
+        MailTemplates.Message unusual = templates.token("registro", "<script>alert('x')</script>");
+        assertFalse(unusual.htmlContent().contains("<script>"));
+        assertTrue(unusual.htmlContent().contains("&lt;script&gt;"));
+        assertTrue(unusual.htmlContent().contains("%3Cscript%3E"));
+    }
+
+    @Test
     void smtpFailureIsExposedAsControlledMailError() {
         JavaMailSender sender = new StubJavaMailSender() {
             @Override
@@ -109,11 +206,7 @@ class MailServiceTests {
                 throw new MailSendException("provider unavailable");
             }
         };
-        SmtpMailService mail = new SmtpMailService(
-                sender,
-                new MailTemplates("https://frontend.quickbid.demo"),
-                "no-reply@quickbid.demo"
-        );
+        SmtpMailService mail = smtp(sender, new MailTemplates("https://frontend.quickbid.demo"));
 
         assertThrows(
                 MailDeliveryException.class,
@@ -125,22 +218,90 @@ class MailServiceTests {
     void smtpRequiresConfiguredSenderAddress() {
         assertThrows(MailDeliveryException.class,
                 () -> new SmtpMailService(new StubJavaMailSender(),
-                        new MailTemplates("https://frontend.quickbid.demo"), ""));
+                        new MailTemplates("https://frontend.quickbid.demo"), "",
+                        "smtp.quickbid.demo", "usuario", "password", true));
         assertThrows(MailDeliveryException.class,
                 () -> new SmtpMailService(new StubJavaMailSender(),
-                        new MailTemplates("https://frontend.quickbid.demo"), "no-es-email"));
+                        new MailTemplates("https://frontend.quickbid.demo"), "no-es-email",
+                        "smtp.quickbid.demo", "usuario", "password", true));
+    }
+
+    @Test
+    void smtpRequiresHostAndCredentialsWhenAuthenticationIsEnabled() {
+        MailTemplates templates = new MailTemplates("https://frontend.quickbid.demo");
+
+        assertThrows(MailDeliveryException.class,
+                () -> new SmtpMailService(new StubJavaMailSender(), templates,
+                        "no-reply@quickbid.demo", "", "usuario", "password", true));
+        assertThrows(MailDeliveryException.class,
+                () -> new SmtpMailService(new StubJavaMailSender(), templates,
+                        "no-reply@quickbid.demo", "smtp.quickbid.demo", "", "password", true));
+        assertThrows(MailDeliveryException.class,
+                () -> new SmtpMailService(new StubJavaMailSender(), templates,
+                        "no-reply@quickbid.demo", "smtp.quickbid.demo", "usuario", "", true));
+    }
+
+    @Test
+    void smtpAllowsBlankCredentialsWhenAuthenticationIsDisabled() {
+        SmtpMailService mail = new SmtpMailService(
+                new StubJavaMailSender(),
+                new MailTemplates("https://frontend.quickbid.demo"),
+                "no-reply@quickbid.demo",
+                "localhost",
+                "",
+                "",
+                false
+        );
+
+        assertNotNull(mail);
     }
 
     @Test
     void smtpRejectsInvalidRecipientAsControlledMailError() {
-        SmtpMailService mail = new SmtpMailService(
+        SmtpMailService mail = smtp(
                 new StubJavaMailSender(),
-                new MailTemplates("https://frontend.quickbid.demo"),
-                "no-reply@quickbid.demo"
+                new MailTemplates("https://frontend.quickbid.demo")
         );
 
         assertThrows(MailDeliveryException.class,
                 () -> mail.sendNotification("destinatario-invalido", "multa_generada"));
+    }
+
+    @Test
+    void disabledBusinessNotificationsDoNotReachAnyMailProvider() {
+        CuentaAppRepository accounts = mock(CuentaAppRepository.class);
+        AtomicBoolean delivered = new AtomicBoolean();
+        MailService provider = new MailService() {
+            @Override public void sendToken(String purpose, String recipient, String token) { delivered.set(true); }
+            @Override public void sendNotification(String recipient, String type) { delivered.set(true); }
+        };
+
+        new MailNotificationService(accounts, provider, false).critical(3001L, "multa_generada");
+
+        assertFalse(delivered.get());
+        verifyNoInteractions(accounts);
+    }
+
+    private SmtpMailService smtp(JavaMailSender sender, MailTemplates templates) {
+        return new SmtpMailService(
+                sender,
+                templates,
+                "no-reply@quickbid.demo",
+                "smtp.quickbid.demo",
+                "usuario-smtp",
+                "password-smtp",
+                true
+        );
+    }
+
+    private String allMessages(Throwable error) {
+        StringBuilder messages = new StringBuilder();
+        Throwable current = error;
+        while (current != null && current.getCause() != current) {
+            if (current.getMessage() != null) messages.append(current.getMessage()).append('\n');
+            current = current.getCause();
+        }
+        return messages.toString();
     }
 
     private static class StubJavaMailSender implements JavaMailSender {

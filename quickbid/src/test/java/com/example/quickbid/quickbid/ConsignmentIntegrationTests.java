@@ -8,10 +8,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
@@ -38,9 +41,10 @@ import com.example.quickbid.quickbid.dto.request.ConsignmentReturnRequest;
 import com.example.quickbid.quickbid.exception.BusinessException;
 import com.example.quickbid.quickbid.security.AuthRateLimitService;
 import com.example.quickbid.quickbid.service.ConsignmentService;
+import com.example.quickbid.quickbid.storage.StorageService;
 import com.jayway.jsonpath.JsonPath;
 
-@SpringBootTest
+@SpringBootTest(properties = "app.mail.enabled=false")
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Sql(scripts = "/auth-test-data.sql", executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
@@ -49,6 +53,7 @@ class ConsignmentIntegrationTests {
 	@Autowired JdbcTemplate jdbc;
 	@Autowired AuthRateLimitService limits;
 	@Autowired ConsignmentService consignments;
+	@Autowired StorageService storage;
 
 	@BeforeEach void clearLimits() {
 		limits.clear();
@@ -150,23 +155,46 @@ class ConsignmentIntegrationTests {
 				.andExpect(jsonPath("$.errors[0].code").value("MAXIMUM_PHOTOS_EXCEEDED"));
 	}
 
-	@Test void segmentoYCategoriaSubastaQuedanSeparados() throws Exception {
+	@Test void altaIdempotenteNoDuplicaYLaClaveSeAislaPorCuenta() throws Exception {
+		String key = "consignment-create-offline-test-001";
+		Long firstId = createWithIdempotencyKey("oro@quickbid.demo", key);
+		Long replayId = createWithIdempotencyKey("oro@quickbid.demo", key);
+
+		assertEquals(firstId, replayId);
+		assertEquals(1, count("SELECT COUNT(*) FROM app_solicitudes_consignacion WHERE cuenta_id=3004 AND idempotency_key=?", key));
+		assertEquals(6, count("SELECT COUNT(*) FROM app_consignacion_fotos WHERE solicitud_id=?", firstId));
+
+		Long otherAccountId = createWithIdempotencyKey("multa@quickbid.demo", key);
+		assertFalse(firstId.equals(otherAccountId));
+		assertEquals(2, count("SELECT COUNT(*) FROM app_solicitudes_consignacion WHERE idempotency_key=?", key));
+	}
+
+	@Test void altaIgnoraCategoriaSubastaEnviadaPorUsuario() throws Exception {
 		var request = multipart("/api/consignaciones")
 				.param("segmento", "relojeria")
 				.param("categoriaSubasta", "oro")
 				.param("aceptaTyC", "true")
 				.param("declaracionPropiedadYOrigenLicito", "true")
 				.param("titulo", "Reloj demo")
-				.param("descripcion", "Descripcion demo");
+				.param("descripcion", "Descripcion demo")
+				.param("historia", "Procedencia familiar documentada")
+				.param("historiaExtendida", "Detalle extendido de conservacion");
 		for (int i = 0; i < 6; i++) request.file(photo("fotos", i));
 
 		String json = request(request, "oro@quickbid.demo").andExpect(status().isCreated())
 				.andExpect(jsonPath("$.data.segmento").value("relojeria"))
-				.andExpect(jsonPath("$.data.categoriaSubasta").value("oro"))
+				.andExpect(jsonPath("$.data.categoriaSubasta").value("comun"))
 				.andReturn().getResponse().getContentAsString();
 		Long id = ((Number) JsonPath.read(json, "$.data.id")).longValue();
 		assertEquals("relojeria",
 				jdbc.queryForObject("SELECT segmento FROM app_solicitudes_consignacion WHERE id=?", String.class, id));
+		assertEquals("comun",
+				jdbc.queryForObject("SELECT categoria_sugerida FROM app_solicitudes_consignacion WHERE id=?", String.class, id));
+		assertEquals("Procedencia familiar documentada",
+				jdbc.queryForObject("SELECT historia FROM app_solicitudes_consignacion WHERE id=?", String.class, id));
+		assertEquals("Detalle extendido de conservacion",
+				jdbc.queryForObject("SELECT historia_extendida FROM app_solicitudes_consignacion WHERE id=?", String.class, id));
+		consignments.assignAuctionCategory(id, 1002, "oro");
 		assertEquals("oro",
 				jdbc.queryForObject("SELECT categoria_sugerida FROM app_solicitudes_consignacion WHERE id=?", String.class, id));
 	}
@@ -244,10 +272,23 @@ class ConsignmentIntegrationTests {
 
 	@Test void aceptarAcuerdoCreaProductoYFotosLegacyPublicarCreaItemYPoliza() {
 		Long id = create(3004L);
-		toAgreement(id);
+		String fullAgreement = "Acuerdo demo. " + "Clausula contractual extensa y verificable. ".repeat(100)
+				+ "FIN DEL ACUERDO COMPLETO";
+		toAgreement(id, fullAgreement);
 		var accepted = consignments.acceptAgreement(3004L, id,
 				new ConsignmentAgreementAcceptanceRequest(true, true));
 		assertNotNull(accepted.productoId());
+		assertNotNull(accepted.acuerdoEnviadoAt());
+		assertNotNull(accepted.acuerdoAceptadoAt());
+		assertTrue(accepted.documentosGenerados().stream()
+				.anyMatch(file -> file.filename().startsWith("acuerdo_consignacion")
+						&& file.downloadAvailable()
+						&& "acuerdo_consignacion".equals(file.tipo())));
+		String agreementPdf = generatedPdfText(id, "acuerdo_consignacion");
+		assertTrue(agreementPdf.contains("Texto completo del acuerdo aceptado:"));
+		assertTrue(agreementPdf.contains("Acuerdo demo"));
+		assertTrue(agreementPdf.contains("FIN DEL ACUERDO COMPLETO"));
+		assertTrue(agreementPdf.contains("/Count 2") || agreementPdf.contains("/Count 3"));
 		assertEquals(6, count("SELECT COUNT(*) FROM fotos WHERE producto=?", accepted.productoId()));
 		assertNull(jdbc.queryForObject("SELECT seguro FROM productos WHERE identificador=?", String.class,
 				accepted.productoId()));
@@ -258,6 +299,20 @@ class ConsignmentIntegrationTests {
 				accepted.productoId()));
 		assertEquals("publicada", jdbc.queryForObject("SELECT estado FROM app_solicitudes_consignacion WHERE id=?",
 				String.class, id));
+		var published = consignments.detail(3004L, id);
+		assertNotNull(published.poliza());
+		assertEquals("Depósito de custodia QuickBid - Salon Oro QuickBid", published.ubicacionFisica());
+		assertEquals(published.ubicacionFisica(), published.poliza().ubicacionFisica());
+		assertNotNull(published.subastaFechaHora());
+		assertTrue(published.documentosGenerados().stream()
+				.anyMatch(file -> file.filename().startsWith("poliza_consignacion")
+						&& file.downloadAvailable()
+						&& "poliza_consignacion".equals(file.tipo())));
+		String policyPdf = generatedPdfText(id, "poliza_consignacion");
+		assertTrue(policyPdf.contains("Número de póliza: QB-" + id));
+		assertTrue(policyPdf.contains("Id de producto: " + accepted.productoId()));
+		assertTrue(policyPdf.contains("Id de subasta: 6004"));
+		assertTrue(policyPdf.contains("Id de item de catalogo: " + itemId));
 		assertEquals(1, count("SELECT COUNT(*) FROM app_movimientos_puntos WHERE motivo='consignacion_publicada' AND referencia_id=?",
 				id));
 	}
@@ -319,6 +374,20 @@ class ConsignmentIntegrationTests {
 		consignments.assignAuctionAndInsurance(second, 1002, 6004, 7004, policy);
 		assertEquals("si", jdbc.queryForObject("SELECT \"polizaCombinada\" FROM seguros WHERE \"nroPoliza\"=?",
 				String.class, policy));
+
+		Long otherAuction = accepted();
+		assertCode("INVALID_COMBINED_POLICY",
+				() -> consignments.assignAuctionAndInsurance(otherAuction, 1002, 6001, 7001, policy));
+
+		Long otherOwner = create(3001L);
+		consignments.approveDigitalReview(otherOwner, 1002);
+		consignments.markPhysicalReception(otherOwner, 1002);
+		consignments.approvePhysicalReview(otherOwner, 1002);
+		consignments.verifyConsignor(3001L, 1001, true, true, 2);
+		consignments.proposeAgreement(otherOwner, 1002, new BigDecimal("25000"), "ARS", null, null, "Otro acuerdo");
+		consignments.acceptAgreement(3001L, otherOwner, new ConsignmentAgreementAcceptanceRequest(true, true));
+		assertCode("INVALID_COMBINED_POLICY",
+				() -> consignments.assignAuctionAndInsurance(otherOwner, 1002, 6004, 7004, policy));
 	}
 
 	@Test void proponerAcuerdoExigeDuenioYPermiteVerificadorDistintoDelRevisor() {
@@ -436,6 +505,15 @@ class ConsignmentIntegrationTests {
 				() -> consignments.payReturnShipping(3004L, id, new ConsignmentReturnPaymentRequest(5006L, "expired")));
 	}
 
+	@Test void pagoDeEnvioDeDevolucionRechazaLimiteNulo() {
+		Long id = rejectedReturn();
+		consignments.selectReturn(3004L, id, shippingReturn());
+		jdbc.update("UPDATE app_medios_pago SET estado='verificado',limite_monto=NULL,verificado_hasta=DATEADD('DAY',7,CURRENT_TIMESTAMP) WHERE id=5006");
+		assertCode("INSUFFICIENT_FUNDS_OR_LIMIT",
+				() -> consignments.payReturnShipping(3004L, id,
+						new ConsignmentReturnPaymentRequest(5006L, "null-limit")));
+	}
+
 	@Test void envioDeDevolucionPuedePagarseConMedioDistintoAlRegistradoAlIniciar() {
 		jdbc.update("UPDATE app_medios_pago SET estado='pendiente_verificacion',verificado_hasta=NULL WHERE id=5006");
 		Long id = rejectedReturn();
@@ -464,7 +542,10 @@ class ConsignmentIntegrationTests {
 				""", id));
 	}
 
-	@Test void liquidacionSeGeneraUnaSolaVez() {
+	@Test void liquidacionSeGeneraUnaSolaVez() throws Exception {
+		jdbc.update("DELETE FROM app_documentos WHERE referencia_tipo='consignacion' AND referencia_id=16007 AND tipo='liquidacion_venta'");
+		jdbc.update("DELETE FROM app_liquidaciones_consignacion WHERE solicitud_id=16007");
+		jdbc.update("UPDATE app_solicitudes_consignacion SET estado='vendida' WHERE id=16007");
 		jdbc.update("UPDATE app_medios_pago SET estado='rechazado',verificado_hasta=DATEADD('DAY',-1,CURRENT_TIMESTAMP) WHERE id=5006");
 		jdbc.update("""
 				UPDATE app_solicitudes_consignacion
@@ -483,6 +564,71 @@ class ConsignmentIntegrationTests {
 				SELECT COUNT(*) FROM app_documentos
 				WHERE referencia_tipo='consignacion' AND referencia_id=16007 AND tipo='liquidacion_venta'
 				"""));
+		Long fileId = jdbc.queryForObject("""
+				SELECT a.id FROM app_documentos d JOIN app_archivos a ON a.id=d.archivo_id
+				WHERE d.referencia_tipo='consignacion' AND d.referencia_id=16007 AND d.tipo='liquidacion_venta'
+				""", Long.class);
+		byte[] persisted = jdbc.queryForObject("SELECT content_bytes FROM app_archivos WHERE id=?", byte[].class, fileId);
+		assertNotNull(persisted);
+		String pdfText = new String(persisted, java.nio.charset.StandardCharsets.ISO_8859_1);
+		assertTrue(pdfText.startsWith("%PDF"));
+		assertTrue(pdfText.contains("Referencia: CONSIGNACION-16007"));
+		assertTrue(pdfText.contains("Monto bruto:"));
+		assertTrue(pdfText.contains("Monto neto:"));
+		request(get("/api/consignaciones/16007/archivos/" + fileId + "/descargar"), "oro@quickbid.demo")
+				.andExpect(status().isOk())
+				.andExpect(result -> assertTrue(new String(result.getResponse().getContentAsByteArray(),
+						java.nio.charset.StandardCharsets.ISO_8859_1).startsWith("%PDF")));
+	}
+
+	@Test void seedsLiquidadosExponenAcuerdoPolizaYLiquidacionDescargables() throws Exception {
+		seedLiquidatedConsignmentDocuments();
+		var detail = consignments.detail(3004L, 16007L);
+		assertEquals("liquidada", detail.estado());
+		assertEquals("Depósito de custodia QuickBid, Buenos Aires", detail.ubicacionFisica());
+		assertNotNull(detail.poliza());
+		assertEquals(detail.ubicacionFisica(), detail.poliza().ubicacionFisica());
+		assertSeedDocument(16007L, "acuerdo_consignacion", "acuerdo_consignacion");
+		assertSeedDocument(16007L, "poliza_consignacion", "poliza_consignacion", "poliza_seguro");
+		assertSeedDocument(16007L, "liquidacion_venta", "liquidacion_venta");
+		assertTrue(detail.documentosGenerados().stream().anyMatch(file ->
+				"acuerdo_consignacion".equals(file.tipo()) && file.downloadAvailable()));
+		assertTrue(detail.documentosGenerados().stream().anyMatch(file ->
+				"poliza_consignacion".equals(file.tipo()) && file.downloadAvailable()));
+		assertTrue(detail.documentosGenerados().stream().anyMatch(file ->
+				"liquidacion_venta".equals(file.tipo()) && file.downloadAvailable()));
+	}
+
+	@Test void seedsMultiloteExponenAcuerdoYPolizaDescargables() throws Exception {
+		seedMultilotConsignmentDocuments();
+		for (long consignmentId : List.of(16111L, 16112L, 16113L)) {
+			jdbc.update("UPDATE app_solicitudes_consignacion SET ubicacion_fisica=? WHERE id=?",
+					"Depósito de custodia QuickBid - Sala principal, Buenos Aires", consignmentId);
+			var detail = consignments.detail(3004L, consignmentId);
+			assertEquals("Depósito de custodia QuickBid - Sala principal, Buenos Aires", detail.ubicacionFisica());
+			assertSeedDocument(consignmentId, "acuerdo_consignacion", "acuerdo_consignacion");
+			assertSeedDocument(consignmentId, "poliza", "poliza_consignacion", "poliza_seguro");
+		}
+	}
+
+	@Test void duenioDescargaDocumentoDeConsignacionYOtroUsuarioNo() throws Exception {
+		consignments.requestOriginDocuments(16001L, 1002);
+		request(multipart("/api/consignaciones/16001/documentacion-origen")
+				.file(pdf("facturaCompra")), "oro@quickbid.demo").andExpect(status().isOk());
+		Long fileId = jdbc.queryForObject("""
+				SELECT archivo_id FROM app_consignacion_documentos_origen
+				WHERE solicitud_id=16001 ORDER BY id DESC LIMIT 1
+				""", Long.class);
+
+		request(get("/api/consignaciones/16001/archivos/" + fileId + "/descargar"), "oro@quickbid.demo")
+				.andExpect(status().isOk())
+				.andExpect(content().contentType("application/pdf"))
+				.andExpect(header().string("Content-Disposition", containsString("origen.pdf")));
+		request(get("/api/consignaciones/16001/archivos/" + fileId + "/descargar"), "aprobado@quickbid.demo")
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.errors[0].code").value("RESOURCE_NOT_OWNED"));
+		request(get("/api/consignaciones/16001/archivos/99999/descargar"), "oro@quickbid.demo")
+				.andExpect(status().isNotFound());
 	}
 
 	@Test void devolucionPermiteDireccionGuardadaPropiaYMantieneSnapshot() throws Exception {
@@ -563,17 +709,146 @@ class ConsignmentIntegrationTests {
 		assertEquals(code, exception.getErrors().get(0).code());
 	}
 
+	private void seedLiquidatedConsignmentDocuments() {
+		jdbc.update("INSERT INTO seguros(\"nroPoliza\",compania,\"polizaCombinada\",importe) VALUES ('POL-QB-8005','QuickBid Seguros','si',2000.00)");
+		jdbc.update("UPDATE productos SET seguro='POL-QB-8005' WHERE identificador=8005");
+		jdbc.update("""
+				UPDATE app_solicitudes_consignacion
+				SET estado='liquidada',
+				    acuerdo_texto='Condiciones comerciales aceptadas para la publicacion del bien.',
+				    acuerdo_enviado_at=DATEADD('DAY', -2, CURRENT_TIMESTAMP),
+				    acuerdo_aceptado_at=DATEADD('DAY', -1, CURRENT_TIMESTAMP)
+				WHERE id=16007
+				""");
+		jdbc.update("""
+				INSERT INTO app_liquidaciones_consignacion(
+					id,solicitud_id,compra_id,monto_bruto,comision,monto_neto,cuenta_destino,estado,paid_at)
+				VALUES (17301,16007,13002,95000.00,9500.00,85500.00,
+					'Cuenta bancaria registrada del consignador','pagada',CURRENT_TIMESTAMP)
+				""");
+		insertSeedFile(4302L, "acuerdo_consignacion-16007.pdf");
+		insertSeedFile(4303L, "poliza_consignacion-16007.pdf");
+		insertSeedFile(4304L, "liquidacion_venta-16007.pdf");
+		insertSeedDocument(17422L, "acuerdo_consignacion", 16007L, 4302L);
+		insertSeedDocument(17423L, "poliza_consignacion", 16007L, 4303L);
+		insertSeedDocument(17424L, "liquidacion_venta", 16007L, 4304L);
+	}
+
+	private void seedMultilotConsignmentDocuments() {
+		jdbc.update("""
+				INSERT INTO productos(identificador,"descripcionCatalogo",seguro) VALUES
+				    (8011,'Sillon escandinavo de roble','POL-QB-8011'),
+				    (8012,'Juego de vajilla art deco','POL-QB-8012'),
+				    (8013,'Reloj de mesa coleccionable','POL-QB-8013')
+				""");
+		jdbc.update("""
+				INSERT INTO seguros("nroPoliza",compania,"polizaCombinada",importe) VALUES
+				    ('POL-QB-8011','QuickBid Seguros','si',3000.00),
+				    ('POL-QB-8012','QuickBid Seguros','si',3600.00),
+				    ('POL-QB-8013','QuickBid Seguros','si',4100.00)
+				""");
+		jdbc.update("""
+				INSERT INTO app_solicitudes_consignacion (
+				    id,cuenta_id,cliente_id,producto_id,item_catalogo_id,subasta_id,titulo,descripcion,segmento,categoria_sugerida,
+				    declaracion_propiedad,acepta_devolucion_con_cargo,estado,revisor_empleado_id,valor_base_propuesto,
+				    moneda_propuesta,comision_comprador_pct,comision_vendedor_pct,acuerdo_texto,acuerdo_enviado_at,acuerdo_aceptado_at
+				) VALUES
+				    (16111,3004,2004,8011,NULL,6004,'Sillon escandinavo de roble','Primer lote del escenario live multi-lote',
+				     'mobiliario','plata',true,true,'en_subasta',1002,50000,'ARS',10,10,
+				     'Condiciones comerciales aceptadas para la publicacion del bien.',DATEADD('DAY', -2, CURRENT_TIMESTAMP),DATEADD('DAY', -1, CURRENT_TIMESTAMP)),
+				    (16112,3004,2004,8012,NULL,6004,'Juego de vajilla art deco','Segundo lote del escenario live multi-lote',
+				     'decoracion','plata',true,true,'en_subasta',1002,70000,'ARS',10,10,
+				     'Condiciones comerciales aceptadas para la publicacion del bien.',DATEADD('DAY', -2, CURRENT_TIMESTAMP),DATEADD('DAY', -1, CURRENT_TIMESTAMP)),
+				    (16113,3004,2004,8013,NULL,6004,'Reloj de mesa coleccionable','Tercer lote del escenario live multi-lote',
+				     'coleccion','plata',true,true,'en_subasta',1002,90000,'ARS',10,10,
+				     'Condiciones comerciales aceptadas para la publicacion del bien.',DATEADD('DAY', -2, CURRENT_TIMESTAMP),DATEADD('DAY', -1, CURRENT_TIMESTAMP))
+				""");
+		insertSeedFile(4312L, "acuerdo_consignacion-16111.pdf");
+		insertSeedFile(4313L, "poliza_consignacion-16111.pdf");
+		insertSeedFile(4314L, "acuerdo_consignacion-16112.pdf");
+		insertSeedFile(4315L, "poliza_consignacion-16112.pdf");
+		insertSeedFile(4316L, "acuerdo_consignacion-16113.pdf");
+		insertSeedFile(4317L, "poliza_consignacion-16113.pdf");
+		insertSeedDocument(17432L, "acuerdo_consignacion", 16111L, 4312L);
+		insertSeedDocument(17433L, "poliza_seguro", 16111L, 4313L);
+		insertSeedDocument(17434L, "acuerdo_consignacion", 16112L, 4314L);
+		insertSeedDocument(17435L, "poliza_seguro", 16112L, 4315L);
+		insertSeedDocument(17436L, "acuerdo_consignacion", 16113L, 4316L);
+		insertSeedDocument(17437L, "poliza_seguro", 16113L, 4317L);
+	}
+
+	private void insertSeedFile(Long id, String filename) {
+		byte[] bytes = "%PDF-1.4\n%%EOF\n".getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+		jdbc.update("""
+				INSERT INTO app_archivos(
+					id,owner_cuenta_id,tipo_contexto,filename_original,content_type,size_bytes,storage_path,checksum,content_bytes)
+				VALUES (?,?,?,?,?,?,?,?,?)
+				""", id, 3004L, "documento_consignacion", filename, "application/pdf",
+				(long) bytes.length, "test/" + filename, "test-" + id, bytes);
+	}
+
+	private void insertSeedDocument(Long id, String type, Long consignmentId, Long fileId) {
+		jdbc.update("""
+				INSERT INTO app_documentos(id,tipo,referencia_tipo,referencia_id,archivo_id,estado)
+				VALUES (? ,?,'consignacion',?,?,'disponible')
+				""", id, type, consignmentId, fileId);
+	}
+
+	private void assertSeedDocument(Long consignmentId, String filenameToken, String... acceptedTypes) throws Exception {
+		String placeholders = "?,".repeat(acceptedTypes.length);
+		placeholders = placeholders.substring(0, placeholders.length() - 1);
+		List<Object> params = new ArrayList<>();
+		params.add(consignmentId);
+		params.addAll(List.of(acceptedTypes));
+		SeedDocument document = jdbc.queryForObject("""
+				SELECT a.id,a.filename_original,a.size_bytes,a.content_bytes
+				FROM app_documentos d JOIN app_archivos a ON a.id=d.archivo_id
+				WHERE d.referencia_tipo='consignacion'
+				  AND d.referencia_id=?
+				  AND d.tipo IN (%s)
+				  AND d.estado='disponible'
+				  AND a.content_type='application/pdf'
+				  AND a.content_bytes IS NOT NULL
+				ORDER BY d.id LIMIT 1
+				""".formatted(placeholders), (rs, row) -> new SeedDocument(rs.getLong(1),
+					rs.getString(2), rs.getLong(3), rs.getBytes(4)), params.toArray());
+		assertTrue(document.filename().toLowerCase().contains(filenameToken.toLowerCase()));
+		assertEquals(document.sizeBytes().longValue(), document.contentBytes().length);
+		request(get("/api/consignaciones/" + consignmentId + "/archivos/" + document.fileId() + "/descargar"), "oro@quickbid.demo")
+				.andExpect(status().isOk())
+				.andExpect(content().contentType("application/pdf"))
+				.andExpect(header().string("Content-Disposition", containsString(".pdf")))
+				.andExpect(result -> assertTrue(new String(result.getResponse().getContentAsByteArray(),
+						java.nio.charset.StandardCharsets.ISO_8859_1).startsWith("%PDF")));
+	}
+
+	private record SeedDocument(Long fileId, String filename, Long sizeBytes, byte[] contentBytes) {
+	}
+
+	private String generatedPdfText(Long consignmentId, String type) {
+		byte[] bytes = jdbc.queryForObject("""
+				SELECT a.content_bytes FROM app_documentos d JOIN app_archivos a ON a.id=d.archivo_id
+				WHERE d.referencia_tipo='consignacion' AND d.referencia_id=? AND d.tipo=?
+				ORDER BY d.id DESC LIMIT 1
+				""", byte[].class, consignmentId, type);
+		return new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1);
+	}
+
 	private void toAgreement(Long id) {
+		toAgreement(id, "Acuerdo demo");
+	}
+
+	private void toAgreement(Long id, String agreementText) {
 		consignments.approveDigitalReview(id, 1002);
 		consignments.markPhysicalReception(id, 1002);
 		consignments.approvePhysicalReview(id, 1002);
 		consignments.verifyConsignor(3004L, 1002, true, true, 2);
-		consignments.proposeAgreement(id, 1002, new BigDecimal("25000"), "ARS", null, null, "Acuerdo demo");
+		consignments.proposeAgreement(id, 1002, new BigDecimal("25000"), "ARS", null, null, agreementText);
 	}
 
 	private Long create(Long accountId) {
 		return consignments.create(accountId, "arte", "comun", true, true, "Articulo demo", "Descripcion demo", null,
-				"1980", false, null, null, photos()).id();
+				"1980", false, null, null, null, photos()).id();
 	}
 
 	private List<MultipartFile> photos() {
@@ -596,9 +871,19 @@ class ConsignmentIntegrationTests {
 	}
 
 	private void params(org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder builder) {
-		builder.param("segmento", "arte").param("categoriaSubasta", "comun").param("aceptaTyC", "true")
+		builder.param("segmento", "arte").param("aceptaTyC", "true")
 				.param("declaracionPropiedadYOrigenLicito", "true").param("titulo", "Articulo demo")
 				.param("descripcion", "Descripcion demo");
+	}
+
+	private Long createWithIdempotencyKey(String email, String key) throws Exception {
+		var builder = multipart("/api/consignaciones");
+		params(builder);
+		builder.param("idempotencyKey", key);
+		for (int i = 0; i < 6; i++) builder.file(photo("fotos", i));
+		String json = request(builder, email).andExpect(status().isCreated())
+				.andReturn().getResponse().getContentAsString();
+		return ((Number) JsonPath.read(json, "$.data.id")).longValue();
 	}
 
 	private long count(String sql, Object... args) {

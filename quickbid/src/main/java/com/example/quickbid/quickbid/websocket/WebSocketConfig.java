@@ -6,7 +6,9 @@ import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.annotation.SchedulingConfigurer;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+import org.springframework.scheduling.config.ScheduledTaskRegistrar;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
@@ -19,7 +21,7 @@ import org.springframework.web.socket.handler.WebSocketHandlerDecorator;
 @Configuration
 @EnableWebSocketMessageBroker
 @EnableScheduling
-public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
+public class WebSocketConfig implements WebSocketMessageBrokerConfigurer, SchedulingConfigurer {
 	private final WebSocketAuthChannelInterceptor authentication;
 	private final WebSocketOutboundChannelInterceptor outboundAuthorization;
 	private final WebSocketConnectionRegistry connections;
@@ -60,6 +62,11 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 		registration.addDecoratorFactory(this::presenceAware);
 	}
 
+	@Override
+	public void configureTasks(ScheduledTaskRegistrar taskRegistrar) {
+		taskRegistrar.setTaskScheduler(applicationTaskScheduler());
+	}
+
 	private WebSocketHandler presenceAware(WebSocketHandler delegate) {
 		return new WebSocketHandlerDecorator(delegate) {
 			@Override
@@ -77,11 +84,19 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 		};
 	}
 
-	@Bean(name = "taskScheduler")
+	@Bean(name = "webSocketHeartbeatTaskScheduler")
 	public TaskScheduler webSocketHeartbeatTaskScheduler() {
 		ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
 		scheduler.setPoolSize(1);
 		scheduler.setThreadNamePrefix("quickbid-ws-heartbeat-");
+		return scheduler;
+	}
+
+	@Bean(name = "applicationTaskScheduler")
+	public TaskScheduler applicationTaskScheduler() {
+		ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+		scheduler.setPoolSize(2);
+		scheduler.setThreadNamePrefix("quickbid-scheduled-");
 		return scheduler;
 	}
 }

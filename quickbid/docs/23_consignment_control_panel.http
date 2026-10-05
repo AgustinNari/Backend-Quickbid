@@ -1,0 +1,258 @@
+### QuickBid - Consignment control panel
+### Flujos de consignador y workflow admin completo.
+
+@baseUrl = http://localhost:8080
+# Para Render:
+# @baseUrl = https://REEMPLAZAR_BACKEND_RENDER_URL.onrender.com
+
+# Cargar manualmente. No commitear claves reales.
+@adminKey = REEMPLAZAR_ADMIN_KEY
+
+@passwordDemo = Demo123!
+@consignadorEmail = consignador@quickbid.demo
+@cuentaConsignadorId = 3004
+@medioPagoConsignadorId = 5006
+@consignacionId = 16111
+@archivoConsignacionId = 17401
+@direccionEnvioId = 1
+@subastaId = 6011
+@catalogoId = 7011
+@idempotencyConsignacion = consignacion-http-{{$timestamp}}
+@idempotencyDevolucion = devolucion-http-{{$timestamp}}
+
+@tokenConsignador = {{loginConsignador.response.body.$.data.accessToken}}
+
+### A. Requisitos
+# @name consignacionRequisitos
+GET {{baseUrl}}/api/consignaciones/requisitos
+Authorization: Bearer {{tokenConsignador}}
+
+### B. Login consignador
+# @name loginConsignador
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{consignadorEmail}}",
+  "clave": "{{passwordDemo}}"
+}
+
+### C. Crear consignacion multipart con 6 fotos
+# @name crearConsignacionConFotos
+POST {{baseUrl}}/api/consignaciones?segmento=arte&categoriaSubasta=plata&aceptaTyC=true&declaracionPropiedadYOrigenLicito=true&titulo=Objeto%20panel%20HTTP&descripcion=Objeto%20creado%20desde%20panel%20HTTP&historia=Historia%20de%20prueba&fechaAproximada=1970&esObraDeArte=false&idempotencyKey={{idempotencyConsignacion}}
+Authorization: Bearer {{tokenConsignador}}
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="fotos"; filename="foto-01.png"
+Content-Type: image/png
+
+< ./fixtures/foto-01.png
+--boundary
+Content-Disposition: form-data; name="fotos"; filename="foto-02.png"
+Content-Type: image/png
+
+< ./fixtures/foto-02.png
+--boundary
+Content-Disposition: form-data; name="fotos"; filename="foto-03.png"
+Content-Type: image/png
+
+< ./fixtures/foto-03.png
+--boundary
+Content-Disposition: form-data; name="fotos"; filename="foto-04.png"
+Content-Type: image/png
+
+< ./fixtures/foto-04.png
+--boundary
+Content-Disposition: form-data; name="fotos"; filename="foto-05.png"
+Content-Type: image/png
+
+< ./fixtures/foto-05.png
+--boundary
+Content-Disposition: form-data; name="fotos"; filename="foto-06.png"
+Content-Type: image/png
+
+< ./fixtures/foto-06.png
+--boundary--
+
+### D. Subir documentacion de origen
+# @name subirDocumentacionOrigen
+POST {{baseUrl}}/api/consignaciones/{{consignacionId}}/documentacion-origen?observaciones=Documentacion%20enviada%20desde%20panel%20HTTP
+Authorization: Bearer {{tokenConsignador}}
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="facturaCompra"; filename="factura-demo.pdf"
+Content-Type: application/pdf
+
+< ./fixtures/factura-demo.pdf
+--boundary
+Content-Disposition: form-data; name="certificadoAutenticidad"; filename="certificado-demo.pdf"
+Content-Type: application/pdf
+
+< ./fixtures/factura-demo.pdf
+--boundary--
+
+### E. Listar consignaciones
+# @name listarConsignacionesUsuario
+GET {{baseUrl}}/api/consignaciones?page=0&size=20
+Authorization: Bearer {{tokenConsignador}}
+
+### E. Listar consignaciones filtradas
+# @name listarConsignacionesFiltradas
+GET {{baseUrl}}/api/consignaciones?filtro=en_subasta&page=0&size=20
+Authorization: Bearer {{tokenConsignador}}
+
+### F. Detalle consignacion
+# @name detalleConsignacion
+GET {{baseUrl}}/api/consignaciones/{{consignacionId}}
+Authorization: Bearer {{tokenConsignador}}
+
+### G. Descargar archivo de consignacion
+# @name descargarArchivoConsignacion
+GET {{baseUrl}}/api/consignaciones/{{consignacionId}}/archivos/{{archivoConsignacionId}}/descargar
+Authorization: Bearer {{tokenConsignador}}
+
+### H. Aceptar acuerdo
+# @name aceptarAcuerdoConsignacion
+POST {{baseUrl}}/api/consignaciones/{{consignacionId}}/acuerdo/aceptar
+Authorization: Bearer {{tokenConsignador}}
+Content-Type: application/json
+
+{
+  "leyoContrato": true,
+  "aceptaClausulasPlazos": true
+}
+
+### I. Rechazar acuerdo
+# @name rechazarAcuerdoConsignacion
+POST {{baseUrl}}/api/consignaciones/{{consignacionId}}/acuerdo/rechazar
+Authorization: Bearer {{tokenConsignador}}
+
+### J. Solicitar devolucion
+# @name solicitarDevolucion
+POST {{baseUrl}}/api/consignaciones/{{consignacionId}}/devolucion
+Authorization: Bearer {{tokenConsignador}}
+Content-Type: application/json
+
+{
+  "modalidad": "envio",
+  "direccionEnvioId": {{direccionEnvioId}},
+  "telefonoContacto": "+5491100000000"
+}
+
+### K. Preview devolucion
+# @name previewDevolucion
+POST {{baseUrl}}/api/consignaciones/{{consignacionId}}/devolucion/preview
+Authorization: Bearer {{tokenConsignador}}
+Content-Type: application/json
+
+{
+  "modalidad": "envio",
+  "direccion": "Av. Corrientes",
+  "piso": "5A",
+  "codigoPostal": "1043",
+  "localidad": "CABA",
+  "provincia": "Buenos Aires",
+  "telefonoContacto": "+5491100000000"
+}
+
+### L. Pagar envio devolucion
+# @name pagarEnvioDevolucion
+POST {{baseUrl}}/api/consignaciones/{{consignacionId}}/devolucion/pagar-envio
+Authorization: Bearer {{tokenConsignador}}
+Content-Type: application/json
+
+{
+  "medioPagoId": {{medioPagoConsignadorId}},
+  "idempotencyKey": "{{idempotencyDevolucion}}"
+}
+
+### M. Admin workflow - pedir documentacion
+# @name adminPedirDocumentacion
+POST {{baseUrl}}/api/admin/consignaciones/{{consignacionId}}/pedir-documentacion
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### M. Admin workflow - aprobar digital
+# @name adminAprobarDigital
+POST {{baseUrl}}/api/admin/consignaciones/{{consignacionId}}/aprobar-revision-digital
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### M. Admin workflow - asignar categoria
+# @name adminAsignarCategoria
+PATCH {{baseUrl}}/api/admin/consignaciones/{{consignacionId}}/categoria
+X-QuickBid-Admin-Key: {{adminKey}}
+Content-Type: application/json
+
+{
+  "categoria": "plata"
+}
+
+### M. Admin workflow - revisar documentacion
+# @name adminRevisarDocumentacion
+POST {{baseUrl}}/api/admin/consignaciones/{{consignacionId}}/revisar-documentacion
+X-QuickBid-Admin-Key: {{adminKey}}
+Content-Type: application/json
+
+{
+  "aprobada": true,
+  "motivo": "Documentacion revisada desde panel HTTP."
+}
+
+### M. Admin workflow - marcar recibida fisicamente
+# @name adminRecibidaFisicamente
+POST {{baseUrl}}/api/admin/consignaciones/{{consignacionId}}/marcar-recibida-fisicamente
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### M. Admin workflow - aprobar revision fisica
+# @name adminAprobarFisica
+POST {{baseUrl}}/api/admin/consignaciones/{{consignacionId}}/aprobar-revision-fisica
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### M. Admin workflow - verificar duenio
+# @name adminVerificarDuenioConsignador
+POST {{baseUrl}}/api/admin/consignadores/{{cuentaConsignadorId}}/verificar-duenio
+X-QuickBid-Admin-Key: {{adminKey}}
+Content-Type: application/json
+
+{
+  "financiera": false,
+  "judicial": false,
+  "riesgo": 10
+}
+
+### M. Admin workflow - proponer acuerdo
+# @name adminProponerAcuerdoConsignacion
+POST {{baseUrl}}/api/admin/consignaciones/{{consignacionId}}/proponer-acuerdo
+X-QuickBid-Admin-Key: {{adminKey}}
+Content-Type: application/json
+
+{
+  "valorBase": 50000,
+  "moneda": "ARS",
+  "comisionCompradorPct": 10,
+  "comisionVendedorPct": 10,
+  "condiciones": "Condiciones generadas desde panel HTTP."
+}
+
+### M. Admin workflow - asignar subasta
+# @name adminAsignarSubastaConsignacion
+POST {{baseUrl}}/api/admin/consignaciones/{{consignacionId}}/asignar-subasta
+X-QuickBid-Admin-Key: {{adminKey}}
+Content-Type: application/json
+
+{
+  "subastaId": {{subastaId}},
+  "catalogoId": {{catalogoId}},
+  "polizaCombinada": "POL-HTTP-CONSIGNACION"
+}
+
+### M. Admin workflow - liquidar
+# @name adminLiquidarConsignacion
+POST {{baseUrl}}/api/admin/consignaciones/{{consignacionId}}/liquidar
+X-QuickBid-Admin-Key: {{adminKey}}
+Content-Type: application/json
+
+{
+  "medioPagoId": {{medioPagoConsignadorId}}
+}

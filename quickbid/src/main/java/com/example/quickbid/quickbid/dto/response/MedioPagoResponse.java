@@ -13,6 +13,9 @@ public record MedioPagoResponse(
 		String ultimos4,
 		String banco,
 		BigDecimal saldoGarantia,
+		BigDecimal limiteMonto,
+		BigDecimal limiteUsado,
+		BigDecimal limiteDisponible,
 		OffsetDateTime verificadoHasta,
 		OffsetDateTime createdAt) {
 }

@@ -152,7 +152,7 @@ public class UsuarioService {
 	public Address createAddress(Long id, DireccionEnvioRequest request) {
 		account(id);
 		if (direcciones.countByCuentaIdAndDeletedAtIsNull(id) >= MAX_ACTIVE_ADDRESSES) {
-			throw unprocessable("Maximo de direcciones activas alcanzado", "ADDRESS_LIMIT_EXCEEDED");
+			throw unprocessable("Máximo de direcciones activas alcanzado", "ADDRESS_LIMIT_EXCEEDED");
 		}
 		boolean first = direcciones.countByCuentaIdAndDeletedAtIsNull(id) == 0;
 		DireccionEnvio address = new DireccionEnvio(id);
@@ -251,7 +251,7 @@ public class UsuarioService {
 
 	private void checkPage(int page, int size) {
 		if (page < 0 || size < 1 || size > 100) {
-			throw new BusinessException(HttpStatus.BAD_REQUEST, "Paginacion invalida", "INVALID_PAGE");
+			throw new BusinessException(HttpStatus.BAD_REQUEST, "Paginación inválida", "INVALID_PAGE");
 		}
 	}
 

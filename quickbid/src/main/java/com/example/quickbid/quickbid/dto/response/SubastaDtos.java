@@ -14,20 +14,26 @@ public final class SubastaDtos {
 	}
 
 	public record PublicSummary(Integer id, String titulo, String descripcion, LocalDate fecha, LocalTime hora,
-			String ubicacion, String categoria, String moneda, String segmento, String estadoOperativo) {
+			String ubicacion, String categoria, String moneda, String segmento, String estadoOperativo,
+			String imagenPrincipalUrl) {
 	}
 
 	public record AuthenticatedSummary(Integer id, String titulo, String descripcion, LocalDate fecha, LocalTime hora,
-			String ubicacion, String categoria, String moneda, String segmento, String estadoOperativo) {
+			String ubicacion, String categoria, String moneda, String segmento, String estadoOperativo,
+			String imagenPrincipalUrl) {
+	}
+
+	public record Rematador(String nombre, String matricula, String region) {
 	}
 
 	public record PublicDetail(Integer id, String titulo, String descripcion, LocalDate fecha, LocalTime hora,
-			String ubicacion, String categoria, String moneda, String segmento, String estadoOperativo) {
+			String ubicacion, String categoria, String moneda, String segmento, String estadoOperativo,
+			Rematador rematador, String imagenPrincipalUrl) {
 	}
 
 	public record AuthenticatedDetail(Integer id, String titulo, String descripcion, LocalDate fecha, LocalTime hora,
 			String ubicacion, String categoria, String moneda, String segmento, String estadoOperativo,
-			Boolean permiteInscripcionOnline, Boolean autenticado) {
+			Boolean permiteInscripcionOnline, Boolean autenticado, Rematador rematador, String imagenPrincipalUrl) {
 	}
 
 	public record PublicCatalog(Integer subastaId, Integer catalogoId, String descripcion, List<PublicItem> items) {
@@ -37,11 +43,19 @@ public final class SubastaDtos {
 			List<AuthenticatedItem> items) {
 	}
 
-	public record PublicItem(Integer id, Integer productoId, String descripcion, List<Integer> fotoIds) {
+	public record PublicItem(Integer id, Integer productoId, String descripcion, List<Integer> fotoIds,
+			List<String> fotoUrls, String imagenPrincipalUrl, Integer ordenLote, String estadoLote, String estado,
+			Boolean activo, Boolean subastado, String resultadoLote, Long compraId, Boolean compradorEmpresa,
+			String duenioActual, String fechaObjeto, String historia, String historiaExtendida,
+			String artistaDisenador, String segmentoConsignacion, String categoriaAsignada, Long consignacionId) {
 	}
 
 	public record AuthenticatedItem(Integer id, Integer productoId, String descripcion, List<Integer> fotoIds,
-			BigDecimal precioBase, BigDecimal comision) {
+			List<String> fotoUrls, String imagenPrincipalUrl, BigDecimal precioBase, BigDecimal comision,
+			Integer ordenLote, String estadoLote, String estado, Boolean activo, Boolean subastado,
+			String resultadoLote, Long compraId, Boolean compradorEmpresa,
+			String duenioActual, String fechaObjeto, String historia, String historiaExtendida,
+			String artistaDisenador, String segmentoConsignacion, String categoriaAsignada, Long consignacionId) {
 	}
 
 	public record PaymentOption(Long id, String tipo, String moneda, String estado, Boolean principal,
@@ -81,7 +95,9 @@ public final class SubastaDtos {
 			String moneda, Long versionEstado, Boolean puedePujar, String motivo, BigDecimal precioBase,
 			BigDecimal incrementoMinimo, OffsetDateTime serverNow, OffsetDateTime retencionHasta,
 			Long segundosRestantes, Boolean miPujaGanadora, String estadoLote, Boolean adjudicado,
-			String siguienteAccion) {
+			String siguienteAccion, Boolean esperandoPrimeraPuja, Boolean timerActivo, String mensajeEstado,
+			OffsetDateTime deadlineActual, String tipoTimer, OffsetDateTime proximoLoteAt,
+			OffsetDateTime subastaFinalizaAt, Integer siguienteItemId, Integer siguienteLoteOrden) {
 	}
 
 	public record Bid(Long id, Integer subastaId, Integer itemCatalogoId, String estado, BigDecimal monto,

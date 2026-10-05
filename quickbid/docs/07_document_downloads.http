@@ -1,0 +1,33 @@
+# QuickBid - descargas autenticadas de documentos (solo lectura)
+
+@baseUrl = http://localhost:8080
+@accessOwner = REEMPLAZAR_ACCESS_TOKEN_DUENIO
+@accessOther = REEMPLAZAR_ACCESS_TOKEN_OTRO_USUARIO
+@purchaseId = REEMPLAZAR_COMPRA_ID
+@documentId = REEMPLAZAR_DOCUMENTO_ID
+@consignmentId = REEMPLAZAR_CONSIGNACION_ID
+@fileId = REEMPLAZAR_ARCHIVO_ID
+
+### Listar documentos de una compra propia
+GET {{baseUrl}}/api/compras/{{purchaseId}}/documentos
+Authorization: Bearer {{accessOwner}}
+
+### Descargar documento de compra propio
+GET {{baseUrl}}/api/compras/{{purchaseId}}/documentos/{{documentId}}/descargar
+Authorization: Bearer {{accessOwner}}
+
+### Debe responder 403 para otro usuario
+GET {{baseUrl}}/api/compras/{{purchaseId}}/documentos/{{documentId}}/descargar
+Authorization: Bearer {{accessOther}}
+
+### Consultar consignacion propia y obtener downloadUrl de sus archivos
+GET {{baseUrl}}/api/consignaciones/{{consignmentId}}
+Authorization: Bearer {{accessOwner}}
+
+### Descargar foto, documento de origen o documento emitido propio
+GET {{baseUrl}}/api/consignaciones/{{consignmentId}}/archivos/{{fileId}}/descargar
+Authorization: Bearer {{accessOwner}}
+
+### Debe responder 403 para otro usuario
+GET {{baseUrl}}/api/consignaciones/{{consignmentId}}/archivos/{{fileId}}/descargar
+Authorization: Bearer {{accessOther}}

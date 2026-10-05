@@ -52,7 +52,7 @@ public class AuthController {
 			@RequestPart(required = false) MultipartFile fotoFrente,
 			@RequestPart(required = false) MultipartFile fotoDorso) {
 		auth.etapa2(email, file(fotoFrenteDni, fotoFrente), file(fotoDorsoDni, fotoDorso));
-		return ApiResponse.success(null, "Documentacion recibida");
+		return ApiResponse.success(null, "Documentación recibida");
 	}
 
 	@PostMapping("/registro/verificar-token")
@@ -71,7 +71,7 @@ public class AuthController {
 	@PostMapping("/registro/reenviar-link")
 	public ApiResponse<Void> resend(@Valid @RequestBody EmailRequest r) {
 		auth.resend(r.email);
-		return ApiResponse.success(null, "Si corresponde, se envio un nuevo enlace");
+		return ApiResponse.success(null, "Si corresponde, se envió un nuevo enlace");
 	}
 
 	@PostMapping("/login")
@@ -93,7 +93,7 @@ public class AuthController {
 	@PostMapping("/recuperar-clave")
 	public ApiResponse<Void> recover(@Valid @RequestBody EmailRequest r) {
 		auth.recover(r.email);
-		return ApiResponse.success(null, "Si el email existe, se envio un enlace");
+		return ApiResponse.success(null, "Si el email existe, se envió un enlace");
 	}
 
 	@PutMapping("/cambiar-clave")

@@ -42,6 +42,8 @@
 
     function connect() {
       const token = document.getElementById("token").value.trim();
+      const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const brokerURL = `${wsProtocol}//${window.location.host}/ws`;
 
       if (!token) {
         alert("Pegá primero el accessToken");
@@ -49,7 +51,7 @@
       }
 
       client = new StompJs.Client({
-        brokerURL: "ws://localhost:8080/ws",
+        brokerURL: brokerURL,
         connectHeaders: {
           Authorization: "Bearer " + token
         },

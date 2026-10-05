@@ -13,7 +13,7 @@ quickbid/uploads/
 # Test/runtime generated uploads
 quickbid/target/test-uploads/
 
-# Local H2 database files
+# Local databases from earlier development setups
 quickbid/quickbiddb.mv.db
 quickbid/quickbiddb.trace.db
 

@@ -1,23 +1,26 @@
 package com.example.quickbid.quickbid;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.messaging.MessagingException;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.jdbc.Sql;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.example.quickbid.quickbid.websocket.WebSocketSubscriptionAuthorizer;
 
-@SpringBootTest
+@SpringBootTest(properties = "app.mail.enabled=false")
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Sql(scripts = "/auth-test-data.sql", executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
@@ -25,6 +28,12 @@ class WebSocketSubscriptionAuthorizerIntegrationTests {
 	@Autowired WebSocketSubscriptionAuthorizer subscriptions;
 	@Autowired JdbcTemplate jdbc;
 	@Autowired MockMvc mvc;
+	@Autowired @Qualifier("webSocketHeartbeatTaskScheduler") TaskScheduler webSocketHeartbeatScheduler;
+	@Autowired @Qualifier("applicationTaskScheduler") TaskScheduler applicationScheduler;
+
+	@Test void heartbeatWebSocketYTimersDeAplicacionUsanPoolsSeparados() {
+		assertNotSame(webSocketHeartbeatScheduler, applicationScheduler);
+	}
 
 	@Test void handshakeSinJwtHttpLlegaAlTransporteWebSocket() throws Exception {
 		mvc.perform(get("/ws")).andExpect(status().isBadRequest());

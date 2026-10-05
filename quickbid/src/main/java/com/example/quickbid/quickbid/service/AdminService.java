@@ -3,10 +3,13 @@ package com.example.quickbid.quickbid.service;
 import java.math.BigDecimal;
 import java.sql.PreparedStatement;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Set;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -25,6 +28,7 @@ import com.example.quickbid.quickbid.dto.admin.AdminDtos.AuctionCreate;
 import com.example.quickbid.quickbid.dto.admin.AdminDtos.AuctionUpdate;
 import com.example.quickbid.quickbid.dto.admin.AdminDtos.CatalogItem;
 import com.example.quickbid.quickbid.dto.admin.AdminDtos.Consignment;
+import com.example.quickbid.quickbid.dto.admin.AdminDtos.DemoResetStatus;
 import com.example.quickbid.quickbid.dto.admin.AdminDtos.PaymentMethod;
 import com.example.quickbid.quickbid.dto.admin.AdminDtos.PurchaseSimulation;
 import com.example.quickbid.quickbid.dto.admin.AdminDtos.Status;
@@ -45,7 +49,7 @@ import com.example.quickbid.quickbid.websocket.PurchaseRealtimePublisher;
 
 @Service
 public class AdminService {
-	private static final Set<String> CATEGORIES = Set.of("comun", "especial", "plata", "oro", "platino");
+    private static final Set<String> CATEGORIES = Set.of("comun", "especial", "plata", "oro", "platino");
 	private static final Set<String> PAYMENT_METHOD_STATES = Set.of("pendiente_verificacion", "verificado", "rechazado", "vencido", "eliminado");
 	private final JdbcTemplate jdbc;
 	private final SolicitudRegistroRepository registrations;
@@ -63,13 +67,25 @@ public class AdminService {
 	private final AdminQueryRepository queries;
 	private final AuctionQueryRepository auctionQueries;
 	private final PurchaseRealtimePublisher realtime;
+	private final NotificationCleanupService notificationCleanup;
+	private final boolean demoResetEnabled;
+	private final boolean demoShortAuctionsEnabled;
+	private final boolean demoAutoOpenAuctionsEnabled;
+	private final boolean demoFirstLotWaitsForFirstBid;
+	private final int demoAuctionStartDelaySeconds;
 
 	public AdminService(JdbcTemplate jdbc, SolicitudRegistroRepository registrations,
 			RegistrationApprovalService registrationApproval, CuentaAppRepository accounts, ClienteRepository clients,
 			CategoriaService categories, MedioPagoService paymentMethods, PurchaseService purchases,
 			AuctionTimerService auctionTimers, ConsignmentService consignments, AuditService audit,
 			Environment environment, MailNotificationService mail, AdminQueryRepository queries,
-			AuctionQueryRepository auctionQueries, PurchaseRealtimePublisher realtime) {
+			AuctionQueryRepository auctionQueries, PurchaseRealtimePublisher realtime,
+			NotificationCleanupService notificationCleanup,
+			@Value("${app.demo.reset-enabled:false}") boolean demoResetEnabled,
+			@Value("${app.demo.short-auctions-enabled:false}") boolean demoShortAuctionsEnabled,
+			@Value("${app.demo.auto-open-auctions-enabled:false}") boolean demoAutoOpenAuctionsEnabled,
+			@Value("${app.demo.first-lot-waits-for-first-bid:false}") boolean demoFirstLotWaitsForFirstBid,
+			@Value("${app.demo.auction-start-delay-seconds:120}") int demoAuctionStartDelaySeconds) {
 		this.jdbc = jdbc;
 		this.registrations = registrations;
 		this.registrationApproval = registrationApproval;
@@ -86,6 +102,12 @@ public class AdminService {
 		this.queries = queries;
 		this.auctionQueries = auctionQueries;
 		this.realtime = realtime;
+		this.notificationCleanup = notificationCleanup;
+		this.demoResetEnabled = demoResetEnabled;
+		this.demoShortAuctionsEnabled = demoShortAuctionsEnabled;
+		this.demoAutoOpenAuctionsEnabled = demoAutoOpenAuctionsEnabled;
+		this.demoFirstLotWaitsForFirstBid = demoFirstLotWaitsForFirstBid;
+		this.demoAuctionStartDelaySeconds = demoAuctionStartDelaySeconds;
 	}
 
 	@Transactional(readOnly = true)
@@ -118,7 +140,7 @@ public class AdminService {
 	public Account unblock(Long id, Integer employeeId) {
 		CuentaApp account = account(id);
 		if (!Set.of("deshabilitada_admin", "bloqueada_permanente").contains(account.getEstado())) {
-			throw conflict("La cuenta no esta bloqueada", "INVALID_STATE_TRANSITION");
+			throw conflict("La cuenta no está bloqueada", "INVALID_STATE_TRANSITION");
 		}
 		account.changeState("activa");
 		audit(employeeId, "usuario.desbloqueado_admin", "cuenta", id);
@@ -138,7 +160,7 @@ public class AdminService {
 	public Account category(Long id, String category, Integer employeeId) {
 		CuentaApp account = account(id);
 		String value = category.toLowerCase();
-		if (!CATEGORIES.contains(value)) throw bad("Categoria invalida", "INVALID_CATEGORY");
+		if (!CATEGORIES.contains(value)) throw bad("Categoría inválida", "INVALID_CATEGORY");
 		account.updateCategory(value);
 		clients.findById(account.getClienteId()).orElseThrow(() -> notFound("Cliente inexistente")).updateCategory(value);
 		audit(employeeId, "usuario.categoria_forzada", "cuenta", id);
@@ -173,7 +195,7 @@ public class AdminService {
 		int fines = purchases.expireDueFines();
 		int purchases = this.purchases.abandonDueExtraPayments();
 		int returns = consignments.expireDueReturns(employeeId);
-		int notifications = cleanupOldNotifications();
+		int notifications = notificationCleanup.cleanupOld();
 		audit(employeeId, "vencimientos.procesados", "sistema", null);
 		return new Status("procesado", "Medios vencidos: " + expiredPaymentMethods + ", multas vencidas: " + fines
 				+ ", compras abandonadas: " + purchases + ", devoluciones vencidas: " + returns
@@ -199,22 +221,14 @@ public class AdminService {
 	}
 
 	public Status cleanupNotifications(Integer employeeId) {
-		int deleted = cleanupOldNotifications();
+		int deleted = notificationCleanup.cleanupOld();
 		audit(employeeId, "notificaciones.limpieza_antiguas", "notificacion", null);
 		return new Status("procesado", deleted + " notificaciones eliminadas");
 	}
 
-	private int cleanupOldNotifications() {
-		return jdbc.update("""
-				DELETE FROM app_notificaciones
-				WHERE (leida = true AND COALESCE(read_at, created_at) < ?)
-				   OR (leida = false AND created_at < ?)
-				""", OffsetDateTime.now().minusDays(30), OffsetDateTime.now().minusDays(90));
-	}
-
 	@Transactional
 	public Auction createAuction(AuctionCreate request, Integer employeeId) {
-		validateAuction(request.fecha(), request.categoria(), request.moneda());
+		validateAuction(request.fecha(), request.hora(), request.categoria(), request.moneda(), request.montoMinimo(), request.montoMaximo());
 		long id = insert("""
 				INSERT INTO subastas(fecha,hora,estado,ubicacion,categoria) VALUES (?,?,'abierta',?,?)
 				""", "identificador", statement -> {
@@ -225,25 +239,30 @@ public class AdminService {
 		});
 		jdbc.update("""
 				INSERT INTO app_subasta_ext(subasta_id,titulo,descripcion,moneda,segmento,estado_operativo,
-					permite_inscripcion_online) VALUES (?,?,?,?,?,'programada',?)
+					permite_inscripcion_online, monto_minimo, monto_maximo) VALUES (?,?,?,?,?,'programada',?,?,?)
 				""", id, request.titulo(), request.descripcion(), request.moneda().toUpperCase(), request.segmento(),
-				request.permiteInscripcionOnline() == null || request.permiteInscripcionOnline());
+				request.permiteInscripcionOnline() == null || request.permiteInscripcionOnline(), request.montoMinimo(), request.montoMaximo());
 		jdbc.update("INSERT INTO app_subasta_estado_vivo(subasta_id,version,usuarios_conectados) VALUES (?,0,0)", id);
 		audit(employeeId, "subasta.creada", "subasta", id);
+
+		jdbc.update("""
+			INSERT INTO catalogos(identificador, descripcion, subasta, responsable) VALUES (?,?,?,?)
+			""", id+2000, "Catálogo de subasta " + id, id, 1004);
+
 		return auction(Math.toIntExact(id));
 	}
 
 	@Transactional
 	public Auction updateAuction(Integer id, AuctionUpdate request, Integer employeeId) {
-		validateAuction(request.fecha(), request.categoria(), null);
+		validateAuction(request.fecha(), request.hora(), request.categoria(), null, request.montoMinimo(), request.montoMaximo());
 		if (!auctionQueries.existsAuction(id)) throw notFound("Subasta inexistente");
 		jdbc.update("UPDATE subastas SET fecha=?,hora=?,ubicacion=?,categoria=? WHERE identificador=?", request.fecha(),
 				request.hora(), request.ubicacion(), request.categoria().toLowerCase(), id);
 		jdbc.update("""
 				UPDATE app_subasta_ext SET titulo=?,descripcion=?,segmento=?,permite_inscripcion_online=?,
-					updated_at=CURRENT_TIMESTAMP WHERE subasta_id=?
+					monto_minimo=?, monto_maximo=?, updated_at=CURRENT_TIMESTAMP WHERE subasta_id=?
 				""", request.titulo(), request.descripcion(), request.segmento(),
-				request.permiteInscripcionOnline() == null || request.permiteInscripcionOnline(), id);
+				request.permiteInscripcionOnline() == null || request.permiteInscripcionOnline(), request.montoMinimo(), request.montoMaximo(), id);
 		audit(employeeId, "subasta.actualizada", "subasta", id.longValue());
 		return auction(id);
 	}
@@ -252,7 +271,6 @@ public class AdminService {
 	public Auction openAuction(Integer id, Integer employeeId) {
 		requireAuction(id);
 		boolean becameLive = auctionQueries.isNotLive(id);
-		jdbc.update("UPDATE subastas SET estado='abierta' WHERE identificador=?", id);
 		jdbc.update("UPDATE app_subasta_ext SET estado_operativo='en_vivo',updated_at=CURRENT_TIMESTAMP WHERE subasta_id=?", id);
 		if (becameLive) {
 			Long version = startLiveLifecycle(id);
@@ -260,7 +278,7 @@ public class AdminService {
 				jdbc.update("""
 						INSERT INTO app_notificaciones(cuenta_id,tipo,titulo,descripcion,referencia_tipo,referencia_id)
 						VALUES (?,'subasta_inscripta_proxima_inicio','Subasta disponible en vivo',
-							'Una subasta en la que manifestaste interes ya esta disponible en vivo.','subasta',?)
+							'Una subasta en la que manifestaste interés ya está disponible en vivo.','subasta',?)
 						""", accountId, id);
 				mail.critical(accountId, "subasta_inscripta_proxima_inicio");
 			});
@@ -270,11 +288,6 @@ public class AdminService {
 		return auction(id);
 	}
 
-	/**
-	 * Deja el estado vivo listo para que el scheduler active el primer lote sin
-	 * intervencion manual: sin lote activo y con el proximo lote programado de inmediato.
-	 * Devuelve la version resultante para publicarla en el evento de inicio.
-	 */
 	private Long startLiveLifecycle(Integer auctionId) {
 		int updated = jdbc.update("""
 				UPDATE app_subasta_estado_vivo
@@ -303,15 +316,13 @@ public class AdminService {
 	public Status setActiveItem(Integer id, Integer itemId, Integer employeeId) {
 		requireAuction(id);
 		if (!auctionQueries.existsAuctionItem(id, itemId)) throw bad("El item no pertenece a la subasta", "INVALID_AUCTION_ITEM");
-		OffsetDateTime lotDeadline = OffsetDateTime.now().plusSeconds(60);
+		OffsetDateTime lotDeadline = shouldWaitForFirstDemoBid(id, itemId) ? null : OffsetDateTime.now().plusSeconds(60);
 		jdbc.update("""
 				UPDATE app_subasta_estado_vivo SET item_catalogo_activo_id=?,version=version+1,
 					lote_iniciado_at=CURRENT_TIMESTAMP,retencion_hasta=NULL,lote_finaliza_estimado_at=?,
 					proximo_lote_programado_at=NULL,subasta_finaliza_programado_at=NULL,updated_at=CURRENT_TIMESTAMP
 				WHERE subasta_id=?
 				""", itemId, lotDeadline, id);
-		// La activacion manual debe publicar el mismo evento que la activacion automatica
-		// del scheduler; de lo contrario los clientes conectados quedan desincronizados.
 		Long version = jdbc.queryForObject("SELECT version FROM app_subasta_estado_vivo WHERE subasta_id=?",
 				Long.class, id);
 		realtime.afterCommit(new AuctionLifecycleEvent("LOTE_ACTIVADO", id, itemId, version, lotDeadline));
@@ -330,20 +341,32 @@ public class AdminService {
 		audit(employeeId, "subasta.timers_procesados", "subasta", null);
 		return new Status("procesado", "Lotes cerrados: " + result.lotesCerrados()
 				+ ", lotes activados: " + result.lotesActivados()
-				+ ", subastas finalizadas: " + result.subastasFinalizadas());
+				+ ", subastas finalizadas: " + result.subastasFinalizadas()
+				+ ", subastas demo abiertas: " + result.subastasDemoAbiertas());
 	}
 
 	@Transactional
 	public Integer addCatalogItem(Integer auctionId, CatalogItem request, Integer employeeId) {
+
+
 		if (!auctionQueries.existsCatalogForAuction(auctionId, request.catalogoId())) {
 			throw bad("Catalogo incompatible", "INVALID_CATALOG");
 		}
 		if (!auctionQueries.existsProduct(request.productoId())) {
 			throw notFound("Producto inexistente");
 		}
+		int montoMin = auctionQueries.getMinPrice(auctionId);
+		int montoMax = auctionQueries.getMaxPrice(auctionId);
 		if (request.precioBase().signum() <= 0 || request.comision().signum() <= 0) {
 			throw bad("Importes invalidos", "INVALID_AMOUNT");
 		}
+		if (montoMin > 0 && request.precioBase().compareTo(BigDecimal.valueOf(montoMin)) < 0) {
+			throw bad("Precio base menor al minimo de la subasta", "INVALID_AMOUNT");
+		}
+		if (montoMax > 0 && request.precioBase().compareTo(BigDecimal.valueOf(montoMax)) > 0) {
+			throw bad("Precio base mayor al maximo de la subasta", "INVALID_AMOUNT");
+		}
+
 		long id = insert("""
 				INSERT INTO "itemsCatalogo"(catalogo,producto,"precioBase",comision,subastado) VALUES (?,?,?,?,'no')
 				""", "identificador", statement -> {
@@ -402,6 +425,10 @@ public class AdminService {
 		consignments.approveDigitalReview(id, employeeId);
 	}
 
+	public void assignConsignmentCategory(Long id, String category, Integer employeeId) {
+		consignments.assignAuctionCategory(id, employeeId, category);
+	}
+
 	public void reviewDocuments(Long id, boolean approved, String reason, Integer employeeId) {
 		consignments.reviewOriginDocuments(id, employeeId, approved, reason);
 	}
@@ -456,10 +483,253 @@ public class AdminService {
 		return new Status("sin_cambios", "Flyway ya carga el seed " + scope + " de forma idempotente por base");
 	}
 
-	public Status resetDemo(Integer employeeId) {
-		requireDevOrTest();
-		audit(employeeId, "seed.reset_demo_solicitado", "seed", null);
-		return new Status("sin_cambios", "Reset destructivo deshabilitado; recrea la base dev para restaurar V1-V7");
+	@Transactional
+	public DemoResetStatus resetDemo(Integer employeeId) {
+		if (!demoResetEnabled) {
+			throw forbidden("El reset demo no está habilitado", "DEMO_RESET_DISABLED");
+		}
+		final int auctionId = demoAuctionId();
+		List<Integer> demoItems = demoItemIds(auctionId);
+		if (demoItems.isEmpty()) {
+			if (auctionId != 6011) {
+				return resetLegacyDemo(employeeId, auctionId);
+			}
+			throw conflict("No hay lotes demo configurados; recrea la base demo", "DEMO_RECREATE_REQUIRED");
+		}
+		Integer itemId = demoItems.get(0);
+		releaseDemoReservations(auctionId);
+		deleteDemoNotifications(auctionId);
+		deleteDemoPurchases(auctionId);
+		deleteDemoBids(auctionId);
+		resetDemoCatalogState(auctionId);
+		resetDemoAccountsAndPaymentMethods(auctionId);
+		LocalDateTime scheduledAt = LocalDateTime.now().plusSeconds(Math.max(0, demoAuctionStartDelaySeconds));
+		jdbc.update("UPDATE subastas SET fecha=?,hora=?,estado='abierta' WHERE identificador=?",
+				scheduledAt.toLocalDate(), scheduledAt.toLocalTime(), auctionId);
+		jdbc.update("""
+				UPDATE app_subasta_ext SET estado_operativo='programada',updated_at=CURRENT_TIMESTAMP
+				WHERE subasta_id=?
+				""", auctionId);
+		jdbc.update("""
+				UPDATE app_subasta_estado_vivo
+				SET item_catalogo_activo_id=NULL,version=version+1,usuarios_conectados=0,
+					lote_iniciado_at=NULL,retencion_hasta=NULL,lote_finaliza_estimado_at=NULL,
+					proximo_lote_programado_at=NULL,subasta_finaliza_programado_at=NULL,
+					updated_at=CURRENT_TIMESTAMP
+				WHERE subasta_id=?
+				""", auctionId);
+		audit(employeeId, "seed.reset_demo_app_owned", "subasta", (long) auctionId);
+		return new DemoResetStatus("preparada",
+				"Subasta " + auctionId + " programada para demo; el lote inicial será " + itemId,
+				auctionId, scheduledAt, itemId, demoItems, demoAutoOpenAuctionsEnabled,
+				demoFirstLotWaitsForFirstBid);
+	}
+
+	private DemoResetStatus resetLegacyDemo(Integer employeeId, Integer auctionId) {
+		List<Integer> items = jdbc.query("""
+				SELECT i.identificador FROM "itemsCatalogo" i
+				JOIN catalogos c ON c.identificador=i.catalogo
+				WHERE c.subasta=?
+				ORDER BY i.identificador
+				""", (rs, row) -> rs.getInt(1), auctionId);
+		if (items.isEmpty()) {
+			throw conflict("No hay lotes demo configurados; recrea la base demo", "DEMO_RECREATE_REQUIRED");
+		}
+		Integer itemId = items.get(items.size() - 1);
+		jdbc.update("""
+				UPDATE app_reservas_medio_pago SET estado='liberada',released_at=CURRENT_TIMESTAMP
+				WHERE estado='activa' AND puja_id IN (
+					SELECT id FROM app_pujas_live WHERE subasta_id=?
+				)
+				""", auctionId);
+		jdbc.update("UPDATE app_pujas_live SET estado='superada' WHERE subasta_id=? AND estado='aceptada'",
+				auctionId);
+		jdbc.update("UPDATE \"itemsCatalogo\" SET subastado='no' WHERE identificador=?", itemId);
+		jdbc.update("UPDATE subastas SET estado='abierta' WHERE identificador=?", auctionId);
+		jdbc.update("""
+				UPDATE app_subasta_ext SET estado_operativo='abierta',updated_at=CURRENT_TIMESTAMP
+				WHERE subasta_id=?
+				""", auctionId);
+		jdbc.update("""
+				UPDATE app_subasta_estado_vivo
+				SET item_catalogo_activo_id=NULL,version=version+1,retencion_hasta=NULL,
+					lote_finaliza_estimado_at=NULL,proximo_lote_programado_at=NULL,
+					subasta_finaliza_programado_at=NULL,updated_at=CURRENT_TIMESTAMP
+				WHERE subasta_id=?
+				""", auctionId);
+		audit(employeeId, "seed.reset_demo_legacy", "subasta", (long) auctionId);
+		return new DemoResetStatus("preparada",
+				"Subasta demo legacy " + auctionId + " lista para abrir manualmente; activar item " + itemId,
+				auctionId, null, itemId, List.of(itemId), demoAutoOpenAuctionsEnabled,
+				demoFirstLotWaitsForFirstBid);
+	}
+
+	private boolean shouldWaitForFirstDemoBid(Integer auctionId, Integer itemId) {
+		return demoFirstLotWaitsForFirstBid && auctionId == 6011 && itemId != null
+				&& itemId.equals(firstDemoItemId(auctionId))
+				&& count("SELECT COUNT(*) FROM app_pujas_live WHERE subasta_id=?", auctionId) == 0;
+	}
+
+	private Integer firstDemoItemId(Integer auctionId) {
+		List<Integer> values = demoItemIds(auctionId);
+		return values.isEmpty() ? null : values.get(0);
+	}
+
+	private List<Integer> demoItemIds(Integer auctionId) {
+		return jdbc.query("""
+				SELECT i.identificador FROM "itemsCatalogo" i
+				JOIN catalogos c ON c.identificador=i.catalogo
+				WHERE c.subasta=? AND i.identificador IN (9011,9012,9013)
+				ORDER BY i.identificador
+				""", (rs, row) -> rs.getInt(1), auctionId);
+	}
+
+	private void releaseDemoReservations(Integer auctionId) {
+		jdbc.update("""
+				UPDATE app_reservas_medio_pago SET estado='liberada',released_at=CURRENT_TIMESTAMP
+				WHERE estado='activa' AND puja_id IN (
+					SELECT id FROM app_pujas_live WHERE subasta_id=? AND item_catalogo_id IN (9011,9012,9013)
+				)
+				""", auctionId);
+	}
+
+	private void deleteDemoPurchases(Integer auctionId) {
+		if (count("SELECT COUNT(*) FROM app_compras WHERE subasta_id=? AND item_catalogo_id IN (9011,9012,9013)",
+				auctionId) == 0) {
+			return;
+		}
+		List<Long> fileIds = jdbc.query("""
+				SELECT archivo_id FROM app_documentos
+				WHERE referencia_tipo='compra' AND referencia_id IN (
+					SELECT id FROM app_compras WHERE subasta_id=? AND item_catalogo_id IN (9011,9012,9013)
+				)
+				""", (rs, row) -> rs.getLong(1), auctionId);
+		jdbc.update("""
+				DELETE FROM app_documentos WHERE referencia_tipo='compra' AND referencia_id IN (
+					SELECT id FROM app_compras WHERE subasta_id=? AND item_catalogo_id IN (9011,9012,9013)
+				)
+				""", auctionId);
+		for (Long fileId : fileIds) {
+			jdbc.update("DELETE FROM app_archivos WHERE id=?", fileId);
+		}
+		jdbc.update("""
+				DELETE FROM app_pagos WHERE compra_id IN (
+					SELECT id FROM app_compras WHERE subasta_id=? AND item_catalogo_id IN (9011,9012,9013)
+				) OR multa_id IN (
+					SELECT id FROM app_multas WHERE compra_id IN (
+						SELECT id FROM app_compras WHERE subasta_id=? AND item_catalogo_id IN (9011,9012,9013)
+					)
+				)
+				""", auctionId, auctionId);
+		jdbc.update("""
+				DELETE FROM app_entregas WHERE compra_id IN (
+					SELECT id FROM app_compras WHERE subasta_id=? AND item_catalogo_id IN (9011,9012,9013)
+				)
+				""", auctionId);
+		jdbc.update("""
+				DELETE FROM app_multas WHERE compra_id IN (
+					SELECT id FROM app_compras WHERE subasta_id=? AND item_catalogo_id IN (9011,9012,9013)
+				)
+				""", auctionId);
+		jdbc.update("""
+				DELETE FROM app_liquidaciones_consignacion WHERE compra_id IN (
+					SELECT id FROM app_compras WHERE subasta_id=? AND item_catalogo_id IN (9011,9012,9013)
+				)
+				""", auctionId);
+		jdbc.update("DELETE FROM app_compras WHERE subasta_id=? AND item_catalogo_id IN (9011,9012,9013)",
+				auctionId);
+	}
+
+	private void deleteDemoNotifications(Integer auctionId) {
+		jdbc.update("""
+				DELETE FROM app_notificaciones
+				WHERE referencia_tipo='puja' AND referencia_id IN (
+					SELECT id FROM app_pujas_live WHERE subasta_id=? AND item_catalogo_id IN (9011,9012,9013)
+				)
+				""", auctionId);
+		jdbc.update("""
+				DELETE FROM app_notificaciones
+				WHERE referencia_tipo='compra' AND referencia_id IN (
+					SELECT id FROM app_compras WHERE subasta_id=? AND item_catalogo_id IN (9011,9012,9013)
+				)
+				""", auctionId);
+		jdbc.update("""
+				DELETE FROM app_notificaciones
+				WHERE referencia_tipo='multa' AND referencia_id IN (
+					SELECT id FROM app_multas WHERE compra_id IN (
+						SELECT id FROM app_compras WHERE subasta_id=? AND item_catalogo_id IN (9011,9012,9013)
+					)
+				)
+				""", auctionId);
+		jdbc.update("""
+				DELETE FROM app_notificaciones
+				WHERE referencia_tipo='subasta' AND referencia_id=? AND tipo<>'demo_lista'
+				""", auctionId);
+	}
+
+	private void deleteDemoBids(Integer auctionId) {
+		jdbc.update("""
+				DELETE FROM app_reservas_medio_pago WHERE puja_id IN (
+					SELECT id FROM app_pujas_live WHERE subasta_id=? AND item_catalogo_id IN (9011,9012,9013)
+				)
+				""", auctionId);
+		jdbc.update("DELETE FROM app_pujas_live WHERE subasta_id=? AND item_catalogo_id IN (9011,9012,9013)",
+				auctionId);
+		jdbc.update("DELETE FROM pujos WHERE item IN (9011,9012,9013)");
+		jdbc.update("DELETE FROM \"registroDeSubasta\" WHERE subasta=? AND producto IN (8011,8012,8013)",
+				auctionId);
+	}
+
+	private void resetDemoCatalogState(Integer auctionId) {
+		jdbc.update("UPDATE \"itemsCatalogo\" SET subastado='no' WHERE identificador IN (9011,9012,9013)");
+		jdbc.update("""
+				UPDATE app_solicitudes_consignacion
+				SET estado='en_subasta',updated_at=CURRENT_TIMESTAMP
+				WHERE subasta_id=? AND item_catalogo_id IN (9011,9012,9013)
+				""", auctionId);
+	}
+
+	private void resetDemoAccountsAndPaymentMethods(Integer auctionId) {
+		if (auctionId != 6011) return;
+		jdbc.update("""
+				UPDATE app_medios_pago
+				SET consumo_actual=0, estado='verificado', deleted_at=NULL, updated_at=CURRENT_TIMESTAMP,
+					verificado_hasta=?
+				WHERE id IN (5001,5010)
+				""", LocalDateTime.now().plusDays(7));
+		jdbc.update("""
+				UPDATE app_cuentas SET estado='activa', puntos=900, categoria_calculada='plata',
+					intentos_login=0, updated_at=CURRENT_TIMESTAMP
+				WHERE id=3001
+				""");
+		jdbc.update("""
+				UPDATE app_cuentas SET estado='activa', puntos=850, categoria_calculada='plata',
+					intentos_login=0, updated_at=CURRENT_TIMESTAMP
+				WHERE id=3005
+				""");
+		jdbc.update("UPDATE clientes SET categoria='plata' WHERE identificador IN (2001,2005)");
+		jdbc.update("""
+				UPDATE app_cuentas SET estado='restriccion_multa', puntos=300, categoria_calculada='especial',
+					updated_at=CURRENT_TIMESTAMP
+				WHERE id=3002
+				""");
+		jdbc.update("UPDATE clientes SET categoria='especial' WHERE identificador=2002");
+		jdbc.update("""
+				UPDATE app_cuentas SET estado='bloqueada_permanente', puntos=0, categoria_calculada='comun',
+					updated_at=CURRENT_TIMESTAMP
+				WHERE id=3003
+				""");
+		jdbc.update("UPDATE clientes SET categoria='comun' WHERE identificador=2003");
+		jdbc.update("""
+				UPDATE app_cuentas SET estado='activa', puntos=80, categoria_calculada='comun',
+					updated_at=CURRENT_TIMESTAMP
+				WHERE id=3006
+				""");
+		jdbc.update("UPDATE clientes SET categoria='comun' WHERE identificador=2006");
+	}
+
+	private int demoAuctionId() {
+		return auctionQueries.existsAuction(6011) ? 6011 : 6004;
 	}
 
 	private Auction auction(Integer id) {
@@ -468,10 +738,17 @@ public class AdminService {
 
 	private void requireAuction(Integer id) { auction(id); }
 
-	private void validateAuction(LocalDate date, String category, String currency) {
-		if (!date.isAfter(LocalDate.now().plusDays(10))) throw bad("La fecha debe superar diez dias", "INVALID_AUCTION_DATE");
-		if (!CATEGORIES.contains(category.toLowerCase())) throw bad("Categoria invalida", "INVALID_CATEGORY");
-		if (currency != null && !Set.of("ARS", "USD").contains(currency.toUpperCase())) throw bad("Moneda invalida", "INVALID_CURRENCY");
+	private void validateAuction(LocalDate date, LocalTime time, String category, String currency, int montoMinimo, int montoMaximo) {
+		if (demoShortAuctionsEnabled) {
+			if (!LocalDateTime.of(date, time).isAfter(LocalDateTime.now().plusMinutes(5))) {
+				throw bad("La fecha y hora deben superar cinco minutos", "INVALID_AUCTION_DATE");
+			}
+		} else if (!date.isAfter(LocalDate.now().plusDays(10))) {
+			throw bad("La fecha debe superar diez dias", "INVALID_AUCTION_DATE");
+		}
+		if (!CATEGORIES.contains(category.toLowerCase())) throw bad("Categoría inválida", "INVALID_CATEGORY");
+		if (currency != null && !Set.of("ARS", "USD").contains(currency.toUpperCase())) throw bad("Moneda inválida", "INVALID_CURRENCY");
+		if (montoMinimo < 0 || montoMaximo < 0 || montoMinimo > montoMaximo) throw bad("Montos inválidos", "INVALID_AMOUNT_RANGE");
 	}
 
 	private void requireDevOrTest() {
@@ -486,6 +763,11 @@ public class AdminService {
 
 	private CuentaApp account(Long id) {
 		return accounts.findById(id).orElseThrow(() -> notFound("Cuenta inexistente"));
+	}
+
+	private int count(String sql, Object... args) {
+		Integer value = jdbc.queryForObject(sql, Integer.class, args);
+		return value == null ? 0 : value;
 	}
 
 	private AdminDtos.Registration registration(com.example.quickbid.quickbid.entity.app.SolicitudRegistro value) {

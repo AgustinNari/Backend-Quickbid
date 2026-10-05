@@ -52,7 +52,7 @@ public class RegistrationApprovalService {
 	public void approve(long solicitudId, String documento, int verificadorId, String categoria) {
 		String value = categoria == null || categoria.isBlank() ? "comun" : categoria.toLowerCase();
 		if (!CATEGORIES.contains(value)) {
-			throw new BusinessException(HttpStatus.BAD_REQUEST, "Categoria invalida", "INVALID_CATEGORY");
+			throw new BusinessException(HttpStatus.BAD_REQUEST, "Categoría inválida", "INVALID_CATEGORY");
 		}
 
 		var s = solicitudes.findById(solicitudId)

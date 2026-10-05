@@ -68,4 +68,14 @@ public class AuctionQueryRepository {
 		Integer value = jdbc.queryForObject(sql, Integer.class, args);
 		return value == null ? 0 : value;
 	}
+
+	public int getMinPrice (Integer auctionId) {
+		Integer value = jdbc.queryForObject("SELECT monto_minimo FROM app_subasta_ext WHERE subasta_id=?", Integer.class, auctionId);
+		return value == null ? 0 : value;
+	}
+
+	public int getMaxPrice(Integer auctionId) {
+		Integer value = jdbc.queryForObject("SELECT monto_maximo FROM app_subasta_ext WHERE subasta_id=?", Integer.class, auctionId);
+		return value == null ? 0 : value;
+	}
 }

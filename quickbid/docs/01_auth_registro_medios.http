@@ -6,7 +6,7 @@
 # -----------------------------------------------------------------------------
 
 @baseUrl = http://localhost:8080
-@adminKey = test-admin-key
+@adminKey = TU_ADMIN_KEY
 
 @cuentaAprobadaId = 3001
 @medioPagoPendienteChequeId = 5003
@@ -264,7 +264,7 @@ Content-Type: image/png
 --QuickBidBoundary--
 
 ### 21 - Etapa 3 con setup_token placeholder
-# Para ejecutar, reemplazar {{setupToken}} por el token real recibido por mail/log/DB.
+# Para ejecutar, reemplazar {{setupToken}} por el token real recibido por mail.
 POST {{baseUrl}}/api/auth/registro/etapa3
 Content-Type: application/json
 

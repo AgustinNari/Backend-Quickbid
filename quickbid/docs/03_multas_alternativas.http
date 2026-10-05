@@ -8,7 +8,7 @@
 # -----------------------------------------------------------------------------
 
 @baseUrl = http://localhost:8080
-@adminKey = test-admin-key
+@adminKey = TU_ADMIN_KEY
 
 @compraMultaId = 13001
 @multaId = 14001

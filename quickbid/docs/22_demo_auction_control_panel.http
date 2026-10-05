@@ -1,0 +1,330 @@
+### QuickBid - Demo auction 6011 control panel
+### Panel enfocado en la demo multilote 6011.
+
+@baseUrl = http://localhost:8080
+# Para Render:
+# @baseUrl = https://REEMPLAZAR_BACKEND_RENDER_URL.onrender.com
+
+# Cargar manualmente. No commitear claves reales.
+@adminKey = REEMPLAZAR_ADMIN_KEY
+
+@passwordDemo = Demo123!
+@comprador1Email = aprobado@quickbid.demo
+@comprador2Email = comprador2@quickbid.demo
+@multaEmail = multa@quickbid.demo
+@consignadorEmail = consignador@quickbid.demo
+
+@subastaDemoId = 6011
+@itemDemo1Id = 9011
+@itemDemo2Id = 9012
+@itemDemo3Id = 9013
+
+@medioPagoComprador1ArsId = 5001
+@medioPagoComprador2ArsId = 5010
+@medioPagoMultaArsId = 5004
+@medioPagoConsignadorArsId = 5006
+
+@montoPujaComprador1 = 50000
+@montoPujaComprador2 = 50500
+@versionEstadoActual = 0
+@versionEstadoVieja = 0
+@compraConMultaId = REEMPLAZAR_COMPRA_CON_MULTA_ID
+@idempotencyPuja1 = demo-6011-c1-{{$timestamp}}
+@idempotencyPuja2 = demo-6011-c2-{{$timestamp}}
+@idempotencyMulta = demo-multa-{{$timestamp}}
+
+@tokenComprador1 = {{loginComprador1.response.body.$.data.accessToken}}
+@tokenComprador2 = {{loginComprador2.response.body.$.data.accessToken}}
+@tokenMulta = {{loginUsuarioMulta.response.body.$.data.accessToken}}
+@tokenConsignador = {{loginConsignador.response.body.$.data.accessToken}}
+
+### A. Preparacion - health
+# @name demoHealth
+GET {{baseUrl}}/actuator/health
+
+### A. Preparacion - RESET demo
+# @name demoReset
+POST {{baseUrl}}/api/admin/reset/demo
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### A. Preparacion - login comprador 1
+# @name loginComprador1
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{comprador1Email}}",
+  "clave": "{{passwordDemo}}"
+}
+
+### A. Preparacion - login comprador 2
+# @name loginComprador2
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{comprador2Email}}",
+  "clave": "{{passwordDemo}}"
+}
+
+### A. Preparacion - login usuario con multa
+# @name loginUsuarioMulta
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{multaEmail}}",
+  "clave": "{{passwordDemo}}"
+}
+
+### A. Preparacion - login consignador
+# @name loginConsignador
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{consignadorEmail}}",
+  "clave": "{{passwordDemo}}"
+}
+
+### A. Preparacion - verificacion subasta comprador 1
+# @name demoVerificacionComprador1
+POST {{baseUrl}}/api/subastas/{{subastaDemoId}}/verificacion
+Authorization: Bearer {{tokenComprador1}}
+
+### A. Preparacion - verificacion subasta comprador 2
+# @name demoVerificacionComprador2
+POST {{baseUrl}}/api/subastas/{{subastaDemoId}}/verificacion
+Authorization: Bearer {{tokenComprador2}}
+
+### A. Preparacion - listar subastas
+# @name demoListarSubastas
+GET {{baseUrl}}/api/subastas?estado=en_vivo&page=0&size=20
+Authorization: Bearer {{tokenComprador1}}
+
+### A. Preparacion - detalle 6011
+# @name demoDetalleSubasta
+GET {{baseUrl}}/api/subastas/{{subastaDemoId}}
+Authorization: Bearer {{tokenComprador1}}
+
+### A. Preparacion - catalogo 6011
+# @name demoCatalogo
+GET {{baseUrl}}/api/subastas/{{subastaDemoId}}/catalogo
+Authorization: Bearer {{tokenComprador1}}
+
+### A. Preparacion - snapshot puja actual
+# @name demoSnapshotActual
+GET {{baseUrl}}/api/subastas/{{subastaDemoId}}/puja-actual
+Authorization: Bearer {{tokenComprador1}}
+
+### B. Admin manual - abrir 6011
+# @name demoAbrirSubasta
+POST {{baseUrl}}/api/admin/subastas/{{subastaDemoId}}/abrir
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### B. Admin manual - activar 9011
+# @name demoActivar9011
+POST {{baseUrl}}/api/admin/subastas/{{subastaDemoId}}/item-activo
+X-QuickBid-Admin-Key: {{adminKey}}
+Content-Type: application/json
+
+{
+  "itemCatalogoId": {{itemDemo1Id}}
+}
+
+### B. Admin manual - activar 9012
+# @name demoActivar9012
+POST {{baseUrl}}/api/admin/subastas/{{subastaDemoId}}/item-activo
+X-QuickBid-Admin-Key: {{adminKey}}
+Content-Type: application/json
+
+{
+  "itemCatalogoId": {{itemDemo2Id}}
+}
+
+### B. Admin manual - activar 9013
+# @name demoActivar9013
+POST {{baseUrl}}/api/admin/subastas/{{subastaDemoId}}/item-activo
+X-QuickBid-Admin-Key: {{adminKey}}
+Content-Type: application/json
+
+{
+  "itemCatalogoId": {{itemDemo3Id}}
+}
+
+### B. Admin manual - procesar timers
+# @name demoProcesarTimers
+POST {{baseUrl}}/api/admin/subastas/timers/procesar
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### B. Admin manual - cerrar lote AUTO
+# @name demoCerrarLoteAuto
+POST {{baseUrl}}/api/admin/subastas/{{subastaDemoId}}/cerrar-lote?resultado=AUTO
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### B. Admin manual - cerrar lote SUCCESS
+# @name demoCerrarLoteSuccess
+POST {{baseUrl}}/api/admin/subastas/{{subastaDemoId}}/cerrar-lote?resultado=SUCCESS
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### B. Admin manual - PELIGRO cerrar lote FAILURE
+# @name demoCerrarLoteFailure
+POST {{baseUrl}}/api/admin/subastas/{{subastaDemoId}}/cerrar-lote?resultado=FAILURE
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### B. Admin manual - cerrar subasta
+# @name demoCerrarSubasta
+POST {{baseUrl}}/api/admin/subastas/{{subastaDemoId}}/cerrar
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### C. Pujas - comprador 1 puja por 9011
+# Actualizar @versionEstadoActual con $.data.versionEstado del snapshot previo.
+# @name demoPujaComprador1
+POST {{baseUrl}}/api/subastas/{{subastaDemoId}}/pujar
+Authorization: Bearer {{tokenComprador1}}
+Content-Type: application/json
+
+{
+  "itemCatalogoId": {{itemDemo1Id}},
+  "monto": {{montoPujaComprador1}},
+  "medioPagoId": {{medioPagoComprador1ArsId}},
+  "clientStateVersion": {{versionEstadoActual}},
+  "idempotencyKey": "{{idempotencyPuja1}}"
+}
+
+### C. Pujas - comprador 2 supera
+# Actualizar @versionEstadoActual con el snapshot posterior a la primera puja.
+# @name demoPujaComprador2Supera
+POST {{baseUrl}}/api/subastas/{{subastaDemoId}}/pujar
+Authorization: Bearer {{tokenComprador2}}
+Content-Type: application/json
+
+{
+  "itemCatalogoId": {{itemDemo1Id}},
+  "monto": {{montoPujaComprador2}},
+  "medioPagoId": {{medioPagoComprador2ArsId}},
+  "clientStateVersion": {{versionEstadoActual}},
+  "idempotencyKey": "{{idempotencyPuja2}}"
+}
+
+### C. Pujas - repetir misma puja para probar idempotencia
+# @name demoRepetirPujaComprador2
+POST {{baseUrl}}/api/subastas/{{subastaDemoId}}/pujar
+Authorization: Bearer {{tokenComprador2}}
+Content-Type: application/json
+
+{
+  "itemCatalogoId": {{itemDemo1Id}},
+  "monto": {{montoPujaComprador2}},
+  "medioPagoId": {{medioPagoComprador2ArsId}},
+  "clientStateVersion": {{versionEstadoActual}},
+  "idempotencyKey": "{{idempotencyPuja2}}"
+}
+
+### C. Pujas - puja con version vieja, debe fallar
+# @name demoPujaVersionVieja
+POST {{baseUrl}}/api/subastas/{{subastaDemoId}}/pujar
+Authorization: Bearer {{tokenComprador1}}
+Content-Type: application/json
+
+{
+  "itemCatalogoId": {{itemDemo1Id}},
+  "monto": 51000,
+  "medioPagoId": {{medioPagoComprador1ArsId}},
+  "clientStateVersion": {{versionEstadoVieja}},
+  "idempotencyKey": "demo-version-vieja-{{$timestamp}}"
+}
+
+### C. Pujas - usuario con multa intenta pujar, debe fallar
+# @name demoPujaUsuarioMultaDebeFallar
+POST {{baseUrl}}/api/subastas/{{subastaDemoId}}/pujar
+Authorization: Bearer {{tokenMulta}}
+Content-Type: application/json
+
+{
+  "itemCatalogoId": {{itemDemo1Id}},
+  "monto": 52000,
+  "medioPagoId": {{medioPagoMultaArsId}},
+  "clientStateVersion": {{versionEstadoActual}},
+  "idempotencyKey": "demo-multa-falla-{{$timestamp}}"
+}
+
+### C. Pujas - consignador intenta pujar por item propio si aplica, debe fallar
+# @name demoPujaConsignadorDebeFallar
+POST {{baseUrl}}/api/subastas/{{subastaDemoId}}/pujar
+Authorization: Bearer {{tokenConsignador}}
+Content-Type: application/json
+
+{
+  "itemCatalogoId": {{itemDemo1Id}},
+  "monto": 52000,
+  "medioPagoId": {{medioPagoConsignadorArsId}},
+  "clientStateVersion": {{versionEstadoActual}},
+  "idempotencyKey": "demo-consignador-falla-{{$timestamp}}"
+}
+
+### D. Estados intermedios - snapshot esperando primera puja
+# Precondicion: reset demo + abrir 6011 + activar 9011 con first-lot-waits-for-first-bid habilitado.
+# @name demoSnapshotEsperandoPrimeraPuja
+GET {{baseUrl}}/api/subastas/{{subastaDemoId}}/puja-actual
+Authorization: Bearer {{tokenComprador1}}
+
+### D. Estados intermedios - snapshot con timer sin pujas
+# Precondicion: activar lote posterior sin pujas o abrir lote no configurado para esperar primera puja.
+# @name demoSnapshotTimerSinPujas
+GET {{baseUrl}}/api/subastas/{{subastaDemoId}}/puja-actual
+Authorization: Bearer {{tokenComprador1}}
+
+### D. Estados intermedios - snapshot con retencion ganadora
+# Precondicion: ejecutar una puja aceptada vigente.
+# @name demoSnapshotRetencionGanadora
+GET {{baseUrl}}/api/subastas/{{subastaDemoId}}/puja-actual
+Authorization: Bearer {{tokenComprador1}}
+
+### D. Estados intermedios - snapshot preparando proximo lote
+# Precondicion: cerrar un lote y esperar/forzar proximo_lote_programado_at.
+# @name demoSnapshotPreparandoProximoLote
+GET {{baseUrl}}/api/subastas/{{subastaDemoId}}/puja-actual
+Authorization: Bearer {{tokenComprador1}}
+
+### D. Estados intermedios - snapshot cerrando subasta
+# Precondicion: cerrar ultimo lote y dejar subasta_finaliza_programado_at pendiente.
+# @name demoSnapshotCerrandoSubasta
+GET {{baseUrl}}/api/subastas/{{subastaDemoId}}/puja-actual
+Authorization: Bearer {{tokenComprador1}}
+
+### E. Pago fallido - configuracion externa
+### Para probar falla externa automatica en Render, setear:
+### APP_PAYMENT_ADJUDICATION_EXTERNAL_FAILURE_PROBABILITY_PERCENT=100
+### Luego reiniciar backend, resetear demo, pujar y cerrar lote con AUTO.
+
+### E. Pago fallido - cerrar lote AUTO con probabilidad 100
+# @name demoPagoFallidoCerrarAuto
+POST {{baseUrl}}/api/admin/subastas/{{subastaDemoId}}/cerrar-lote?resultado=AUTO
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### E. Pago fallido - ver compras del comprador ganador
+# @name demoPagoFallidoCompras
+GET {{baseUrl}}/api/compras?estado=multa_activa&page=0&size=20
+Authorization: Bearer {{tokenComprador1}}
+
+### E. Pago fallido - ver detalle compra con multa
+# @name demoPagoFallidoDetalleCompra
+GET {{baseUrl}}/api/compras/{{compraConMultaId}}
+Authorization: Bearer {{tokenComprador1}}
+
+### E. Pago fallido - pagar articulo + multa
+# @name demoPagoFallidoPagarMulta
+POST {{baseUrl}}/api/compras/{{compraConMultaId}}/pagar-con-multa
+Authorization: Bearer {{tokenComprador1}}
+Content-Type: application/json
+
+{
+  "medioPagoId": {{medioPagoComprador1ArsId}},
+  "idempotencyKey": "{{idempotencyMulta}}"
+}
+
+### E. Pago fallido - RESET final posterior a multa
+# @name demoPagoFallidoResetFinal
+POST {{baseUrl}}/api/admin/reset/demo
+X-QuickBid-Admin-Key: {{adminKey}}

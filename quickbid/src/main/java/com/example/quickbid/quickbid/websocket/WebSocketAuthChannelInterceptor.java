@@ -69,7 +69,7 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
 				accountId = Long.valueOf(accessor.getUser().getName());
 			} else {
 				accountId = connections.accountId(accessor.getSessionId())
-						.orElseThrow(() -> new MessagingException("Autenticacion requerida para suscribirse"));
+						.orElseThrow(() -> new MessagingException("Autenticación requerida para suscribirse"));
 				accessor.setUser(new UsernamePasswordAuthenticationToken(accountId, null, List.of()));
 			}
 		} catch (NumberFormatException exception) {

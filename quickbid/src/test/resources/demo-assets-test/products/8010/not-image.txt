@@ -1,0 +1,1 @@
+Este archivo verifica que DemoAssetSeedService ignore recursos no soportados.

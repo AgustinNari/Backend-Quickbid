@@ -11,7 +11,8 @@
 #
 # Antes de ejecutar las pujas:
 # 1) Ejecutar login 3001 y copiar accessToken.
-# 2) Abrir http://localhost:8080/ws-test.html.
+# 2) Abrir {{baseUrl}}/ws-test.html (en Render:
+#    https://quickbid-backend-demo.onrender.com/ws-test.html).
 # 3) Pegar token de 3001, Conectar y Suscribirse.
 # 4) Opcional: abrir otro navegador/incognito con token de 3004, Conectar y Suscribirse.
 # 5) Ejecutar las requests de este archivo en orden.
@@ -37,7 +38,7 @@
 # -----------------------------------------------------------------------------
 
 @baseUrl = http://localhost:8080
-@adminKey = test-admin-key
+@adminKey = TU_ADMIN_KEY
 
 @subastaEnVivoId = 6001
 @itemActivoId = 9001

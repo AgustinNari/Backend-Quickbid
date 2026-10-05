@@ -6,7 +6,7 @@
 # -----------------------------------------------------------------------------
 
 @baseUrl = http://localhost:8080
-@adminKey = test-admin-key
+@adminKey = TU_ADMIN_KEY
 
 @cuentaConsignadorId = 3004
 @medioPagoConsignadorArsId = 5005
@@ -30,7 +30,7 @@ Content-Type: application/json
 GET {{baseUrl}}/api/consignaciones/requisitos
 Authorization: Bearer {{accessConsignador}}
 
-### 03 - Consignacion - Crear nueva con segmento y categoriaSubasta separados
+### 03 - Consignacion - Crear nueva (la empresa define la categoria durante la revision)
 # @name crearConsignacion
 POST {{baseUrl}}/api/consignaciones
 Authorization: Bearer {{accessConsignador}}
@@ -40,10 +40,6 @@ Content-Type: multipart/form-data; boundary=QuickBidBoundary
 Content-Disposition: form-data; name="segmento"
 
 arte
---QuickBidBoundary
-Content-Disposition: form-data; name="categoriaSubasta"
-
-comun
 --QuickBidBoundary
 Content-Disposition: form-data; name="aceptaTyC"
 

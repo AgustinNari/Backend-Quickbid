@@ -14,12 +14,12 @@
 # QuickBid - 00 smoke readonly / seguro para ejecutar muchas veces
 # -----------------------------------------------------------------------------
 # Requiere backend levantado con APP_ADMIN_ENABLED=true y
-# APP_ADMIN_INTERNAL_KEY=test-admin-key.
+# APP_ADMIN_INTERNAL_KEY=TU_ADMIN_KEY.
 # No modifica datos salvo login/refresh/recuperación.
 # -----------------------------------------------------------------------------
 
 @baseUrl = http://localhost:8080
-@adminKey = test-admin-key
+@adminKey = TU_ADMIN_KEY
 
 @cuentaAprobadaId = 3001
 @cuentaMultaId = 3002
@@ -227,7 +227,7 @@ X-QuickBid-Admin-Key: {{adminKey}}
 # -----------------------------------------------------------------------------
 
 @baseUrl = http://localhost:8080
-@adminKey = test-admin-key
+@adminKey = TU_ADMIN_KEY
 
 @cuentaAprobadaId = 3001
 @medioPagoPendienteChequeId = 5003
@@ -430,7 +430,7 @@ Content-Type: application/json
   "nombre": "Nuevo",
   "apellido": "Demo",
   "domicilioLegal": "Calle Demo 123",
-  "idPaisOrigen": 1
+  "idPaisOrigen": 32
 }
 
 ### 19 - Registro etapa 2 con campos finales fotoFrenteDni/fotoDorsoDni
@@ -474,7 +474,7 @@ Content-Type: image/png
 --QuickBidBoundary--
 
 ### 21 - Etapa 3 con setup_token placeholder
-# Para ejecutar, reemplazar {{setupToken}} por el token real recibido por mail/log/DB.
+# Para ejecutar, reemplazar {{setupToken}} por el token real recibido por mail.
 POST {{baseUrl}}/api/auth/registro/etapa3
 Content-Type: application/json
 
@@ -508,7 +508,7 @@ Content-Type: application/json
 # -----------------------------------------------------------------------------
 
 @baseUrl = http://localhost:8080
-@adminKey = test-admin-key
+@adminKey = TU_ADMIN_KEY
 
 @subastaEnVivoId = 6001
 @itemActivoId = 9001
@@ -667,7 +667,7 @@ Authorization: Bearer {{accessAprobado}}
 # -----------------------------------------------------------------------------
 
 @baseUrl = http://localhost:8080
-@adminKey = test-admin-key
+@adminKey = TU_ADMIN_KEY
 
 @compraMultaId = 13001
 @multaId = 14001
@@ -734,7 +734,7 @@ Content-Type: application/json
 # -----------------------------------------------------------------------------
 
 @baseUrl = http://localhost:8080
-@adminKey = test-admin-key
+@adminKey = TU_ADMIN_KEY
 
 @cuentaConsignadorId = 3004
 @medioPagoConsignadorArsId = 5005
@@ -758,7 +758,7 @@ Content-Type: application/json
 GET {{baseUrl}}/api/consignaciones/requisitos
 Authorization: Bearer {{accessConsignador}}
 
-### 03 - Consignacion - Crear nueva con segmento y categoriaSubasta separados
+### 03 - Consignacion - Crear nueva (la empresa define la categoria durante la revision)
 # @name crearConsignacion
 POST {{baseUrl}}/api/consignaciones
 Authorization: Bearer {{accessConsignador}}
@@ -768,10 +768,6 @@ Content-Type: multipart/form-data; boundary=QuickBidBoundary
 Content-Disposition: form-data; name="segmento"
 
 arte
---QuickBidBoundary
-Content-Disposition: form-data; name="categoriaSubasta"
-
-comun
 --QuickBidBoundary
 Content-Disposition: form-data; name="aceptaTyC"
 
@@ -941,7 +937,7 @@ Authorization: Bearer {{accessConsignador}}
 # -----------------------------------------------------------------------------
 
 @baseUrl = http://localhost:8080
-@adminKey = test-admin-key
+@adminKey = TU_ADMIN_KEY
 
 @cuentaConsignadorId = 3004
 @medioPagoConsignadorArsId = 5005
@@ -1101,7 +1097,7 @@ Authorization: Bearer {{accessConsignador}}
 # -----------------------------------------------------------------------------
 
 @baseUrl = http://localhost:8080
-@adminKey = test-admin-key
+@adminKey = TU_ADMIN_KEY
 
 ### 00 - Health
 GET {{baseUrl}}/actuator/health
@@ -1140,36 +1136,44 @@ X-QuickBid-Admin-Key: {{adminKey}}
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# QuickBid - 99 SMTP real smoke
+# QuickBid - 99 mail real smoke (SMTP o Resend HTTPS)
 # -----------------------------------------------------------------------------
 # Reiniciar backend antes con:
 #   APP_MAIL_ENABLED=true
+#   APP_MAIL_PROVIDER=smtp|resend
+#   APP_MAIL_NOTIFICATIONS_ENABLED=false
 #   APP_MAIL_FROM=...
-#   APP_FRONTEND_BASE_URL=...
-#   SPRING_MAIL_HOST/PORT/USERNAME/PASSWORD=...
+#   APP_FRONTEND_BASE_URL=quickbid://auth
+# Si provider=smtp: SPRING_MAIL_HOST/PORT/USERNAME/PASSWORD=...
+# Si provider=resend: APP_RESEND_API_KEY=...
+#   APP_RESEND_API_URL=https://api.resend.com/emails
+#   MANAGEMENT_HEALTH_MAIL_ENABLED=false
 # No automatiza la validacion de casilla: revisar el email manualmente.
 # -----------------------------------------------------------------------------
 
 @baseUrl = http://localhost:8080
-@adminKey = test-admin-key
+# Para Render: @baseUrl = https://quickbid-backend-demo.onrender.com
+@recoveryEmail = reemplazar-por-cuenta-existente@tu-dominio.example
+@pendingRegistrationEmail = reemplazar-por-solicitud-pendiente@tu-dominio.example
+@adminKey = TU_ADMIN_KEY
 @medioPagoPendienteChequeId = 5003
 
 ### 00 - Health
 GET {{baseUrl}}/actuator/health
 
-### 01 - Recuperacion de clave: debe enviar email real si SMTP esta activo
+### 01 - Recuperacion de clave: debe enviar email real con el provider activo
 POST {{baseUrl}}/api/auth/recuperar-clave
 Content-Type: application/json
 
-{ "email": "aprobado@quickbid.demo" }
+{ "email": "{{recoveryEmail}}" }
 
 ### 02 - Reenvio de link de registro generico
 POST {{baseUrl}}/api/auth/registro/reenviar-link
 Content-Type: application/json
 
-{ "email": "pendiente@quickbid.demo" }
+{ "email": "{{pendingRegistrationEmail}}" }
 
-### 03 - Admin verifica medio pendiente y dispara notificacion/email si SMTP de negocio está activo
+### 03 - OPCIONAL/MUTANTE: requiere notifications=true y cambia el medio
 POST {{baseUrl}}/api/admin/medios-pago/{{medioPagoPendienteChequeId}}/verificar
 X-QuickBid-Admin-Key: {{adminKey}}
 Content-Type: application/json

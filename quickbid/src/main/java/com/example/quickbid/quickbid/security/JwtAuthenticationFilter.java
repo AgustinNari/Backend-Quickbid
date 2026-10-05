@@ -49,7 +49,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 									java.util.List.of()));
 				}
 			} catch (Exception ignored) {
-				errors.write(res, HttpServletResponse.SC_UNAUTHORIZED, "Autenticacion requerida", "UNAUTHORIZED");
+				errors.write(res, HttpServletResponse.SC_UNAUTHORIZED, "Autenticación requerida", "UNAUTHORIZED");
 				return;
 			}
 		}

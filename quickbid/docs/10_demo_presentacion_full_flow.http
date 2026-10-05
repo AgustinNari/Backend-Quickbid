@@ -1,0 +1,253 @@
+### QuickBid demo presentacion 6011 - flujo completo
+### Variables esperadas:
+@baseUrl = https://quickbid-backend-demo.onrender.com
+@adminKey = REEMPLAZAR_ADMIN_KEY
+@subastaDemoId = 6011
+@item1 = 9011
+@item2 = 9012
+@item3 = 9013
+@medioComprador1 = 5001
+@medioComprador2 = 5010
+
+### Health
+GET {{baseUrl}}/actuator/health
+
+### Login comprador 1
+# @name loginComprador1
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "aprobado@quickbid.demo",
+  "clave": "Demo123!"
+}
+
+### Login comprador 2
+# @name loginComprador2
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "comprador2@quickbid.demo",
+  "clave": "Demo123!"
+}
+
+### Ver subasta demo
+GET {{baseUrl}}/api/subastas/{{subastaDemoId}}
+Authorization: Bearer {{loginComprador1.response.body.$.data.accessToken}}
+
+### Ver catalogo demo
+GET {{baseUrl}}/api/subastas/{{subastaDemoId}}/catalogo
+Authorization: Bearer {{loginComprador1.response.body.$.data.accessToken}}
+
+### Verificacion comprador 1
+POST {{baseUrl}}/api/subastas/{{subastaDemoId}}/verificacion
+Authorization: Bearer {{loginComprador1.response.body.$.data.accessToken}}
+
+### Verificacion comprador 2
+POST {{baseUrl}}/api/subastas/{{subastaDemoId}}/verificacion
+Authorization: Bearer {{loginComprador2.response.body.$.data.accessToken}}
+
+### Reset controlado de demo
+# Respuesta esperada: data.estado=preparada, data.programadaPara,
+# data.itemInicial=9011, data.itemsDemo=[9011,9012,9013].
+# Tambien limpia compras, multas, pagos, reservas y consumos demo de 6011
+# para poder repetir la presentacion sin resetear toda la BD.
+POST {{baseUrl}}/api/admin/reset/demo
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### Procesar timers para apertura automatica si la hora programada ya vencio
+# Con APP_DEMO_AUTO_OPEN_AUCTIONS_ENABLED=true puede abrir 6011 y activar 9011.
+POST {{baseUrl}}/api/admin/subastas/timers/procesar
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### Abrir subasta
+POST {{baseUrl}}/api/admin/subastas/{{subastaDemoId}}/abrir
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### Activar lote 1
+POST {{baseUrl}}/api/admin/subastas/{{subastaDemoId}}/item-activo
+X-QuickBid-Admin-Key: {{adminKey}}
+Content-Type: application/json
+
+{
+  "itemCatalogoId": {{item1}}
+}
+
+### Snapshot lote 1
+# Con APP_DEMO_FIRST_LOT_WAITS_FOR_FIRST_BID=true debe mostrar
+# esperandoPrimeraPuja=true y timerActivo=false antes de la primera puja.
+# @name snapshotLote1
+GET {{baseUrl}}/api/subastas/{{subastaDemoId}}/puja-actual
+Authorization: Bearer {{loginComprador1.response.body.$.data.accessToken}}
+
+### Puja comprador 1 lote 1
+POST {{baseUrl}}/api/subastas/{{subastaDemoId}}/pujar
+Authorization: Bearer {{loginComprador1.response.body.$.data.accessToken}}
+Content-Type: application/json
+
+{
+  "itemCatalogoId": {{item1}},
+  "monto": 50000,
+  "medioPagoId": {{medioComprador1}},
+  "clientStateVersion": {{snapshotLote1.response.body.$.data.versionEstado}},
+  "idempotencyKey": "demo-http-9011-c1"
+}
+
+### Snapshot comprador 2 lote 1
+# @name snapshotLote1Comprador2
+GET {{baseUrl}}/api/subastas/{{subastaDemoId}}/puja-actual
+Authorization: Bearer {{loginComprador2.response.body.$.data.accessToken}}
+
+### Puja comprador 2 lote 1
+POST {{baseUrl}}/api/subastas/{{subastaDemoId}}/pujar
+Authorization: Bearer {{loginComprador2.response.body.$.data.accessToken}}
+Content-Type: application/json
+
+{
+  "itemCatalogoId": {{item1}},
+  "monto": 50500,
+  "medioPagoId": {{medioComprador2}},
+  "clientStateVersion": {{snapshotLote1Comprador2.response.body.$.data.versionEstado}},
+  "idempotencyKey": "demo-http-9011-c2"
+}
+
+### Cerrar lote 1 con cobro exitoso
+POST {{baseUrl}}/api/admin/subastas/{{subastaDemoId}}/cerrar-lote?resultado=SUCCESS
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### Alternativa demo Pago Fallido: cerrar lote 1 con AUTO
+# Requiere APP_PAYMENT_ADJUDICATION_EXTERNAL_FAILURE_PROBABILITY_PERCENT=100
+# y muestra Pago Fallido en la app del ganador. No ejecutar junto con el cierre SUCCESS anterior.
+POST {{baseUrl}}/api/admin/subastas/{{subastaDemoId}}/cerrar-lote?resultado=AUTO
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### Ver compra con multa activa despues de la alternativa Pago Fallido
+GET {{baseUrl}}/api/compras
+Authorization: Bearer {{loginComprador2.response.body.$.data.accessToken}}
+
+### Limpiar demo despues de Pago Fallido
+# Ejecutar si se probo la alternativa de pago fallido. Vuelve comprador 1 y 2
+# a estado activa, consumo_actual=0 en 5001/5010 y elimina multa/compras de 6011.
+POST {{baseUrl}}/api/admin/reset/demo
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### Activar lote 2
+POST {{baseUrl}}/api/admin/subastas/{{subastaDemoId}}/item-activo
+X-QuickBid-Admin-Key: {{adminKey}}
+Content-Type: application/json
+
+{
+  "itemCatalogoId": {{item2}}
+}
+
+### Snapshot lote 2
+# @name snapshotLote2
+GET {{baseUrl}}/api/subastas/{{subastaDemoId}}/puja-actual
+Authorization: Bearer {{loginComprador1.response.body.$.data.accessToken}}
+
+### Puja comprador 1 lote 2
+POST {{baseUrl}}/api/subastas/{{subastaDemoId}}/pujar
+Authorization: Bearer {{loginComprador1.response.body.$.data.accessToken}}
+Content-Type: application/json
+
+{
+  "itemCatalogoId": {{item2}},
+  "monto": 70000,
+  "medioPagoId": {{medioComprador1}},
+  "clientStateVersion": {{snapshotLote2.response.body.$.data.versionEstado}},
+  "idempotencyKey": "demo-http-9012-c1"
+}
+
+### Snapshot comprador 2 lote 2
+# @name snapshotLote2Comprador2
+GET {{baseUrl}}/api/subastas/{{subastaDemoId}}/puja-actual
+Authorization: Bearer {{loginComprador2.response.body.$.data.accessToken}}
+
+### Puja comprador 2 lote 2
+POST {{baseUrl}}/api/subastas/{{subastaDemoId}}/pujar
+Authorization: Bearer {{loginComprador2.response.body.$.data.accessToken}}
+Content-Type: application/json
+
+{
+  "itemCatalogoId": {{item2}},
+  "monto": 70700,
+  "medioPagoId": {{medioComprador2}},
+  "clientStateVersion": {{snapshotLote2Comprador2.response.body.$.data.versionEstado}},
+  "idempotencyKey": "demo-http-9012-c2"
+}
+
+### Cerrar lote 2 con cobro exitoso
+POST {{baseUrl}}/api/admin/subastas/{{subastaDemoId}}/cerrar-lote?resultado=SUCCESS
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### Activar lote 3
+POST {{baseUrl}}/api/admin/subastas/{{subastaDemoId}}/item-activo
+X-QuickBid-Admin-Key: {{adminKey}}
+Content-Type: application/json
+
+{
+  "itemCatalogoId": {{item3}}
+}
+
+### Snapshot lote 3
+# @name snapshotLote3
+GET {{baseUrl}}/api/subastas/{{subastaDemoId}}/puja-actual
+Authorization: Bearer {{loginComprador1.response.body.$.data.accessToken}}
+
+### Puja comprador 1 lote 3
+POST {{baseUrl}}/api/subastas/{{subastaDemoId}}/pujar
+Authorization: Bearer {{loginComprador1.response.body.$.data.accessToken}}
+Content-Type: application/json
+
+{
+  "itemCatalogoId": {{item3}},
+  "monto": 90000,
+  "medioPagoId": {{medioComprador1}},
+  "clientStateVersion": {{snapshotLote3.response.body.$.data.versionEstado}},
+  "idempotencyKey": "demo-http-9013-c1"
+}
+
+### Snapshot comprador 2 lote 3
+# @name snapshotLote3Comprador2
+GET {{baseUrl}}/api/subastas/{{subastaDemoId}}/puja-actual
+Authorization: Bearer {{loginComprador2.response.body.$.data.accessToken}}
+
+### Puja comprador 2 lote 3
+POST {{baseUrl}}/api/subastas/{{subastaDemoId}}/pujar
+Authorization: Bearer {{loginComprador2.response.body.$.data.accessToken}}
+Content-Type: application/json
+
+{
+  "itemCatalogoId": {{item3}},
+  "monto": 90900,
+  "medioPagoId": {{medioComprador2}},
+  "clientStateVersion": {{snapshotLote3Comprador2.response.body.$.data.versionEstado}},
+  "idempotencyKey": "demo-http-9013-c2"
+}
+
+### Cerrar lote 3 con cobro exitoso
+POST {{baseUrl}}/api/admin/subastas/{{subastaDemoId}}/cerrar-lote?resultado=SUCCESS
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### Cerrar subasta
+POST {{baseUrl}}/api/admin/subastas/{{subastaDemoId}}/cerrar
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### Compras comprador 2
+GET {{baseUrl}}/api/compras
+Authorization: Bearer {{loginComprador2.response.body.$.data.accessToken}}
+
+### Negativo: categoria insuficiente
+# @name loginCategoria
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "categoria@quickbid.demo",
+  "clave": "Demo123!"
+}
+
+### Verificacion categoria insuficiente
+POST {{baseUrl}}/api/subastas/{{subastaDemoId}}/verificacion
+Authorization: Bearer {{loginCategoria.response.body.$.data.accessToken}}

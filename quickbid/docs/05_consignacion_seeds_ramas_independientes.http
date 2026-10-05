@@ -6,7 +6,7 @@
 # -----------------------------------------------------------------------------
 
 @baseUrl = http://localhost:8080
-@adminKey = test-admin-key
+@adminKey = TU_ADMIN_KEY
 
 @cuentaConsignadorId = 3004
 @medioPagoConsignadorArsId = 5005
@@ -123,13 +123,32 @@ Content-Type: application/json
 }
 
 ### F1 alternativa - Seleccionar devolucion con direccion guardada
+# Ejecutar F0 y esta rama sobre una base limpia alternativa, en lugar de F1.
+# @name crearDireccionConsignador
+POST {{baseUrl}}/api/usuario/direcciones-envio
+Authorization: Bearer {{accessConsignador}}
+Content-Type: application/json
+
+{
+  "alias": "Devolucion HTTP {{$timestamp}}",
+  "destinatario": "Diego Consignador",
+  "calle": "Av. Devolucion",
+  "numero": "123",
+  "codigoPostal": "C1000",
+  "localidad": "Buenos Aires",
+  "provincia": "Buenos Aires",
+  "pais": "Argentina",
+  "telefono": "+54 11 5555 0202"
+}
+
+### F1 alternativa - Usar la direccion recien creada
 POST {{baseUrl}}/api/consignaciones/{{consignacionDevolucionId}}/devolucion
-Authorization: Bearer {{consignadorAccessToken}}
+Authorization: Bearer {{accessConsignador}}
 Content-Type: application/json
 
 {
   "modalidad": "envio",
-  "direccionEnvioId": {{direccionEnvioConsignadorId}}
+  "direccionEnvioId": {{crearDireccionConsignador.response.body.$.data.id}}
 }
 
 ### F2 - Seed 16006 - Pagar envio de devolucion

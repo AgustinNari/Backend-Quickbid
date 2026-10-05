@@ -90,10 +90,10 @@ public class AuthService {
 			String domicilio,
 			Integer pais) {
 		if (!paises.existsById(pais)) {
-			throw bad("Pais inexistente", "INVALID_COUNTRY");
+			throw bad("País inexistente", "INVALID_COUNTRY");
 		}
 		if (cuentas.findByEmailIgnoreCase(email).isPresent()) {
-			throw bad("El email ya esta registrado", "EMAIL_ALREADY_EXISTS");
+			throw bad("El email ya está registrado", "EMAIL_ALREADY_EXISTS");
 		}
 
 		solicitudes.findFirstByEmailIgnoreCaseOrderByCreatedAtDesc(email)
@@ -166,11 +166,11 @@ public class AuthService {
 	public Map<String, Object> login(String email, String clave) {
 		limits.check("login", email, 10, Duration.ofMinutes(15));
 		var c = cuentas.findByEmailIgnoreCase(email)
-				.orElseThrow(() -> unauth("Credenciales invalidas"));
+				.orElseThrow(() -> unauth("Credenciales inválidas"));
 
 		if (!passwords.matches(clave, c.getPasswordHash())) {
 			failures.failedLogin(c.getId());
-			throw unauth("Credenciales invalidas");
+			throw unauth("Credenciales inválidas");
 		}
 
 		if (c.getEstado().equals("deshabilitada_admin")) {

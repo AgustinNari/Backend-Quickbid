@@ -36,7 +36,7 @@ import com.example.quickbid.quickbid.security.TokenService;
 import com.example.quickbid.quickbid.service.SimulatedMailService;
 import com.jayway.jsonpath.JsonPath;
 
-@SpringBootTest
+@SpringBootTest(properties = "app.mail.enabled=false")
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Sql(scripts = "/auth-test-data.sql", executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
@@ -240,11 +240,11 @@ class AuthIntegrationTests {
 		mvc.perform(post("/api/auth/recuperar-clave").contentType(MediaType.APPLICATION_JSON)
 				.content("{\"email\":\"aprobado@quickbid.demo\"}"))
 				.andExpect(status().isOk())
-				.andExpect(jsonPath("$.message").value("Si el email existe, se envio un enlace"));
+				.andExpect(jsonPath("$.message").value("Si el email existe, se envió un enlace"));
 		mvc.perform(post("/api/auth/recuperar-clave").contentType(MediaType.APPLICATION_JSON)
 				.content("{\"email\":\"ausente@quickbid.demo\"}"))
 				.andExpect(status().isOk())
-				.andExpect(jsonPath("$.message").value("Si el email existe, se envio un enlace"));
+				.andExpect(jsonPath("$.message").value("Si el email existe, se envió un enlace"));
 		assertEquals(1, mail.deliveries().size());
 		assertTrue(delivered("token", "recuperacion"));
 	}
@@ -289,7 +289,7 @@ class AuthIntegrationTests {
 		String json = mvc.perform(post("/api/auth/registro/reenviar-link").contentType(MediaType.APPLICATION_JSON)
 				.content("{\"email\":\"setup-reenvio@quickbid.demo\"}"))
 				.andExpect(status().isOk())
-				.andExpect(jsonPath("$.message").value("Si corresponde, se envio un nuevo enlace"))
+				.andExpect(jsonPath("$.message").value("Si corresponde, se envió un nuevo enlace"))
 				.andReturn().getResponse().getContentAsString();
 
 		String newHash = jdbc.queryForObject("SELECT setup_token_hash FROM app_solicitudes_registro WHERE id=9105",

@@ -108,7 +108,7 @@ INSERT INTO subastas (
 ) VALUES
     (
         6001,
-        CURRENT_DATE,
+        CURRENT_DATE + 11,
         TIME '09:30',
         'abierta',
         (SELECT identificador FROM personas WHERE documento = 'EMPRESA-SUB-001'),

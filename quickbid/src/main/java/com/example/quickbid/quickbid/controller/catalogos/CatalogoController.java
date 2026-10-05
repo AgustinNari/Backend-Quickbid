@@ -24,11 +24,11 @@ public class CatalogoController {
 	public ApiResponse<Page<Pais>> paises(@RequestParam(required = false) String q,
 			@RequestParam(required = false) String buscar, @RequestParam(defaultValue = "0") int page,
 			@RequestParam(defaultValue = "50") int size) {
-		return ApiResponse.success(catalogos.paises(q, buscar, page, size), "Paises");
+		return ApiResponse.success(catalogos.paises(q, buscar, page, size), "Países");
 	}
 
 	@GetMapping("/paises/{id}")
 	public ApiResponse<Pais> pais(@PathVariable Integer id) {
-		return ApiResponse.success(catalogos.pais(id), "Pais");
+		return ApiResponse.success(catalogos.pais(id), "País");
 	}
 }

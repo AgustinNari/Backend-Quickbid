@@ -9,7 +9,7 @@ public final class PurchaseDtos {
 	}
 
 	public record Summary(Long id, Integer subastaId, Integer itemCatalogoId, Integer productoId,
-			BigDecimal montoAdjudicacion, String moneda, String estado, OffsetDateTime createdAt) {
+			BigDecimal montoAdjudicacion, String moneda, String estado, OffsetDateTime createdAt, Fine multa) {
 	}
 
 	public record Detail(Long id, Integer subastaId, Integer itemCatalogoId, Integer productoId, Long pujaId,
@@ -34,7 +34,7 @@ public final class PurchaseDtos {
 	}
 
 	public record Document(Long id, String tipo, String estado, Long archivoId, String filename, String contentType,
-			Long sizeBytes, OffsetDateTime createdAt) {
+			Long sizeBytes, OffsetDateTime createdAt, Boolean downloadAvailable, String downloadUrl) {
 	}
 
 	public record Page<T>(List<T> content, int page, int size, long totalElements, int totalPages) {

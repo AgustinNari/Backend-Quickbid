@@ -335,6 +335,14 @@ public class MedioPagoService {
 				.orElseGet(() -> cheques.findById(m.getId())
 						.map(ChequeCertificado::getBancoEmisor)
 						.orElse(null));
+		BigDecimal limiteMonto = m.getLimiteMonto();
+		BigDecimal limiteUsado = limiteMonto == null
+				? null
+				: m.getConsumoActual().max(BigDecimal.ZERO)
+						.add(queries.activeReservationsForPaymentMethod(m.getId()));
+		BigDecimal limiteDisponible = limiteMonto == null
+				? null
+				: limiteMonto.subtract(limiteUsado).max(BigDecimal.ZERO);
 		return new MedioPagoResponse(
 				m.getId(),
 				m.getTipo(),
@@ -345,6 +353,9 @@ public class MedioPagoService {
 				m.getUltimos4(),
 				banco,
 				m.getSaldoGarantia(),
+				limiteMonto,
+				limiteUsado,
+				limiteDisponible,
 				m.getVerificadoHasta(),
 				m.getCreatedAt());
 	}
@@ -379,8 +390,8 @@ public class MedioPagoService {
 		notificaciones.save(new NotificacionApp(
 				c,
 				"medio_pago_pendiente",
-				"Medio de pago en revision",
-				"Tu medio de pago quedo pendiente de verificacion manual.",
+				"Medio de pago en revisión",
+				"Tu medio de pago quedó pendiente de verificación manual.",
 				"medio_pago",
 				m.getId()));
 	}
@@ -400,7 +411,7 @@ public class MedioPagoService {
 	private String currency(String v) {
 		v = value(v);
 		if (!Set.of("ARS", "USD").contains(v)) {
-			throw bad("Moneda invalida", "INVALID_CURRENCY");
+			throw bad("Moneda inválida", "INVALID_CURRENCY");
 		}
 		return v;
 	}

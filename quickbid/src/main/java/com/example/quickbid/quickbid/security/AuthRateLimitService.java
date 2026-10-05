@@ -26,7 +26,7 @@ public class AuthRateLimitService {
 			}
 			if (timestamps.size() >= maxAttempts) {
 				throw new BusinessException(HttpStatus.TOO_MANY_REQUESTS,
-						"Demasiados intentos. Intente nuevamente mas tarde", "RATE_LIMITED");
+						"Demasiados intentos. Intente nuevamente más tarde", "RATE_LIMITED");
 			}
 			timestamps.addLast(Instant.now());
 		}

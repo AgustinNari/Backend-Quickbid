@@ -1,34 +1,57 @@
 # -----------------------------------------------------------------------------
-# QuickBid - 99 SMTP real smoke
+# QuickBid - 99 mail real smoke (SMTP, Resend HTTPS o Brevo HTTPS)
 # -----------------------------------------------------------------------------
-# Reiniciar backend antes con:
+# Cambiar @baseUrl para local o Render. Reiniciar/redeployar backend antes con:
 #   APP_MAIL_ENABLED=true
-#   APP_MAIL_FROM=...
-#   APP_FRONTEND_BASE_URL=...
-#   SPRING_MAIL_HOST/PORT/USERNAME/PASSWORD=...
+#   APP_MAIL_PROVIDER=smtp|resend|brevo
+#   APP_MAIL_NOTIFICATIONS_ENABLED=false
+#   APP_MAIL_FROM=<sender verificado>
+#   APP_PUBLIC_BASE_URL=https://quickbid-backend-demo.onrender.com
+#   APP_FRONTEND_BASE_URL=quickbid://auth
+# Si provider=smtp: SPRING_MAIL_HOST/PORT/USERNAME/PASSWORD=...
+# Si provider=resend:
+#   APP_RESEND_API_KEY=...
+#   APP_RESEND_API_URL=https://api.resend.com/emails
+# Si provider=brevo:
+#   APP_BREVO_API_KEY=...
+#   APP_BREVO_API_URL=https://api.brevo.com/v3/smtp/email
+#   APP_BREVO_TIMEOUT_SECONDS=10
+#   MANAGEMENT_HEALTH_MAIL_ENABLED=false
 # No automatiza la validacion de casilla: revisar el email manualmente.
+# Recuperacion y reenvio responden de forma generica incluso si no existe el
+# email o falla el provider. Usar cuentas propias existentes y revisar
+# inbox/spam, logs de Render y logs de Resend/Brevo.
 # -----------------------------------------------------------------------------
 
 @baseUrl = http://localhost:8080
-@adminKey = test-admin-key
+# Para Render, reemplazar la linea anterior por:
+# @baseUrl = https://quickbid-backend-demo.onrender.com
+@recoveryEmail = reemplazar-por-cuenta-existente@tu-dominio.example
+@pendingRegistrationEmail = reemplazar-por-solicitud-pendiente@tu-dominio.example
+@adminKey = TU_ADMIN_KEY
 @medioPagoPendienteChequeId = 5003
+@landingOnlyToken = abc-no-real
 
 ### 00 - Health
 GET {{baseUrl}}/actuator/health
 
-### 01 - Recuperacion de clave: debe enviar email real si SMTP esta activo
+### 00b - Landing publica (no valida ni consume el token de prueba)
+GET {{baseUrl}}/auth-links/recuperar-clave?token={{landingOnlyToken}}
+
+### 01 - Recuperacion de clave: debe enviar email real con el provider activo
 POST {{baseUrl}}/api/auth/recuperar-clave
 Content-Type: application/json
 
-{ "email": "aprobado@quickbid.demo" }
+{ "email": "{{recoveryEmail}}" }
 
 ### 02 - Reenvio de link de registro generico
 POST {{baseUrl}}/api/auth/registro/reenviar-link
 Content-Type: application/json
 
-{ "email": "pendiente@quickbid.demo" }
+{ "email": "{{pendingRegistrationEmail}}" }
 
-### 03 - Admin verifica medio pendiente y dispara notificacion/email si SMTP de negocio está activo
+### 03 - OPCIONAL/MUTANTE: email de negocio; requiere notifications=true y admin
+# No ejecutar como primer smoke. Cambia el estado del medio de pago.
 POST {{baseUrl}}/api/admin/medios-pago/{{medioPagoPendienteChequeId}}/verificar
 X-QuickBid-Admin-Key: {{adminKey}}
 Content-Type: application/json

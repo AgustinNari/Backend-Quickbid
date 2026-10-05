@@ -32,7 +32,7 @@ public class CatalogoService {
 	@Transactional(readOnly = true)
 	public Pais pais(Integer id) {
 		return paises.findById(id).map(this::response)
-				.orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "Pais inexistente", "RESOURCE_NOT_FOUND"));
+				.orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "País inexistente", "RESOURCE_NOT_FOUND"));
 	}
 
 	private Pais response(com.example.quickbid.quickbid.entity.legacy.Pais pais) {
@@ -47,7 +47,7 @@ public class CatalogoService {
 
 	private void checkPage(int page, int size) {
 		if (page < 0 || size < 1 || size > 100) {
-			throw new BusinessException(HttpStatus.BAD_REQUEST, "Paginacion invalida", "INVALID_PAGE");
+			throw new BusinessException(HttpStatus.BAD_REQUEST, "Paginación inválida", "INVALID_PAGE");
 		}
 	}
 }

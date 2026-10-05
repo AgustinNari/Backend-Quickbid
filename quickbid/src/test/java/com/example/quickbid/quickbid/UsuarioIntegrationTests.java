@@ -29,7 +29,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import com.example.quickbid.quickbid.security.AuthRateLimitService;
 import com.jayway.jsonpath.JsonPath;
 
-@SpringBootTest
+@SpringBootTest(properties = "app.mail.enabled=false")
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Sql(scripts = "/auth-test-data.sql", executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)

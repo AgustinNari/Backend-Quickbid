@@ -24,6 +24,7 @@ import com.example.quickbid.quickbid.dto.admin.AdminDtos.AuctionUpdate;
 import com.example.quickbid.quickbid.dto.admin.AdminDtos.CatalogItem;
 import com.example.quickbid.quickbid.dto.admin.AdminDtos.Category;
 import com.example.quickbid.quickbid.dto.admin.AdminDtos.Consignment;
+import com.example.quickbid.quickbid.dto.admin.AdminDtos.DemoResetStatus;
 import com.example.quickbid.quickbid.dto.admin.AdminDtos.Liquidate;
 import com.example.quickbid.quickbid.dto.admin.AdminDtos.OwnerVerification;
 import com.example.quickbid.quickbid.dto.admin.AdminDtos.PaymentMethod;
@@ -97,7 +98,7 @@ public class AdminController {
 	public ApiResponse<Account> category(Authentication authentication, @PathVariable Long id,
 			@Valid @RequestBody Category request) {
 		return ApiResponse.success(admin.category(id, request.categoria(), employeeId(authentication)),
-				"Categoria actualizada");
+				"Categoría actualizada");
 	}
 
 	@GetMapping("/medios-pago")
@@ -231,52 +232,59 @@ public class AdminController {
 	@PostMapping("/consignaciones/{id}/pedir-documentacion")
 	public ApiResponse<Void> requestDocuments(Authentication authentication, @PathVariable Long id) {
 		admin.requestDocuments(id, employeeId(authentication));
-		return ApiResponse.success(null, "Documentacion solicitada");
+		return ApiResponse.success(null, "Documentación solicitada");
 	}
 
 	@PostMapping("/consignaciones/{id}/rechazar")
 	public ApiResponse<Void> rejectConsignment(Authentication authentication, @PathVariable Long id,
 			@Valid @RequestBody Reason request) {
 		admin.rejectConsignment(id, request.motivo(), employeeId(authentication));
-		return ApiResponse.success(null, "Consignacion rechazada");
+		return ApiResponse.success(null, "Consignación rechazada");
 	}
 
 	@PostMapping("/consignaciones/{id}/aprobar-revision-digital")
 	public ApiResponse<Void> approveDigitalReview(Authentication authentication, @PathVariable Long id) {
 		admin.approveDigitalReview(id, employeeId(authentication));
-		return ApiResponse.success(null, "Revision digital aprobada");
+		return ApiResponse.success(null, "Revisión digital aprobada");
+	}
+
+	@PatchMapping("/consignaciones/{id}/categoria")
+	public ApiResponse<Void> assignConsignmentCategory(Authentication authentication, @PathVariable Long id,
+			@Valid @RequestBody Category request) {
+		admin.assignConsignmentCategory(id, request.categoria(), employeeId(authentication));
+		return ApiResponse.success(null, "Categoría de subasta asignada");
 	}
 
 	@PostMapping("/consignaciones/{id}/revisar-documentacion")
 	public ApiResponse<Void> reviewDocuments(Authentication authentication, @PathVariable Long id,
 			@Valid @RequestBody ReviewDecision request) {
 		admin.reviewDocuments(id, request.aprobada(), request.motivo(), employeeId(authentication));
-		return ApiResponse.success(null, "Documentacion revisada");
+		return ApiResponse.success(null, "Documentación revisada");
 	}
 
 	@PostMapping("/consignaciones/{id}/marcar-recibida-fisicamente")
 	public ApiResponse<Void> physicalReception(Authentication authentication, @PathVariable Long id) {
 		admin.markPhysicalReception(id, employeeId(authentication));
-		return ApiResponse.success(null, "Recepcion fisica registrada");
+		return ApiResponse.success(null, "Recepción física registrada");
 	}
 
 	@PostMapping("/consignaciones/{id}/aprobar-revision-fisica")
 	public ApiResponse<Void> approvePhysicalReview(Authentication authentication, @PathVariable Long id) {
 		admin.approvePhysicalReview(id, employeeId(authentication));
-		return ApiResponse.success(null, "Revision fisica aprobada");
+		return ApiResponse.success(null, "Revisión física aprobada");
 	}
 
 	@PostMapping("/consignaciones/{id}/rechazar-revision-fisica")
 	public ApiResponse<Void> rejectPhysicalReview(Authentication authentication, @PathVariable Long id,
 			@Valid @RequestBody Reason request) {
 		admin.rejectPhysicalReview(id, request.motivo(), employeeId(authentication));
-		return ApiResponse.success(null, "Revision fisica rechazada");
+		return ApiResponse.success(null, "Revisión física rechazada");
 	}
 
 	@PostMapping("/consignaciones/{id}/marcar-devolucion-incompleta")
 	public ApiResponse<Void> incompleteReturn(Authentication authentication, @PathVariable Long id) {
 		admin.markReturnIncomplete(id, employeeId(authentication));
-		return ApiResponse.success(null, "Devolucion marcada incompleta");
+		return ApiResponse.success(null, "Devolución marcada incompleta");
 	}
 
 	@PostMapping("/consignadores/{cuentaId}/verificar-duenio")
@@ -303,7 +311,7 @@ public class AdminController {
 	public ApiResponse<Liquidation> liquidate(Authentication authentication, @PathVariable Long id,
 			@Valid @RequestBody Liquidate request) {
 		return ApiResponse.success(admin.liquidate(id, request.medioPagoId(), employeeId(authentication)),
-				"Consignacion liquidada");
+				"Consignación liquidada");
 	}
 
 	@PostMapping("/seed/base")
@@ -322,7 +330,7 @@ public class AdminController {
 	}
 
 	@PostMapping("/reset/demo")
-	public ApiResponse<Status> resetDemo(Authentication authentication) {
+	public ApiResponse<DemoResetStatus> resetDemo(Authentication authentication) {
 		return ApiResponse.success(admin.resetDemo(employeeId(authentication)), "Reset demo");
 	}
 

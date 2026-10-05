@@ -1,0 +1,196 @@
+### QuickBid - Purchase and payment control panel
+### Compras, entregas, pagos, documentos y acciones admin relacionadas.
+
+@baseUrl = http://localhost:8080
+# Para Render:
+# @baseUrl = https://REEMPLAZAR_BACKEND_RENDER_URL.onrender.com
+
+# Cargar manualmente. No commitear claves reales.
+@adminKey = REEMPLAZAR_ADMIN_KEY
+
+@passwordDemo = Demo123!
+@compradorEmail = aprobado@quickbid.demo
+@multaEmail = multa@quickbid.demo
+
+@cuentaCompradorId = 3001
+@cuentaMultaId = 3002
+@medioPagoCompradorId = 5001
+@medioPagoMultaId = 5004
+@compraId = 13002
+@compraMultaId = 13001
+@documentoId = 5391
+@direccionEnvioId = 1
+@multaId = 14001
+@idempotencyExtras = pago-extras-http-{{$timestamp}}
+@idempotencyMulta = pago-multa-http-{{$timestamp}}
+
+@tokenComprador = {{loginComprador.response.body.$.data.accessToken}}
+@tokenMulta = {{loginUsuarioMulta.response.body.$.data.accessToken}}
+
+### A. Login comprador
+# @name loginComprador
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{compradorEmail}}",
+  "clave": "{{passwordDemo}}"
+}
+
+### A. Login usuario con multa
+# @name loginUsuarioMulta
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{multaEmail}}",
+  "clave": "{{passwordDemo}}"
+}
+
+### B. Listar compras
+# @name listarCompras
+GET {{baseUrl}}/api/compras?page=0&size=20
+Authorization: Bearer {{tokenComprador}}
+
+### C. Filtrar compras pendientes
+# @name listarComprasPendientes
+GET {{baseUrl}}/api/compras?estado=adjudicacion_pendiente&page=0&size=20
+Authorization: Bearer {{tokenComprador}}
+
+### C. Filtrar compras pagadas
+# @name listarComprasPagadas
+GET {{baseUrl}}/api/compras?estado=pagada&page=0&size=20
+Authorization: Bearer {{tokenComprador}}
+
+### C. Filtrar compras con multa activa
+# @name listarComprasMultaActiva
+GET {{baseUrl}}/api/compras?estado=multa_activa&page=0&size=20
+Authorization: Bearer {{tokenMulta}}
+
+### C. Filtrar compras con pagos extra pendientes
+# @name listarComprasPagosExtraPendientes
+GET {{baseUrl}}/api/compras?estado=pagos_extra_pendientes&page=0&size=20
+Authorization: Bearer {{tokenComprador}}
+
+### D. Detalle compra
+# @name detalleCompra
+GET {{baseUrl}}/api/compras/{{compraId}}
+Authorization: Bearer {{tokenComprador}}
+
+### D. Detalle compra con multa
+# @name detalleCompraMulta
+GET {{baseUrl}}/api/compras/{{compraMultaId}}
+Authorization: Bearer {{tokenMulta}}
+
+### E. Configurar entrega
+# @name configurarEntrega
+PUT {{baseUrl}}/api/compras/{{compraId}}/entrega
+Authorization: Bearer {{tokenComprador}}
+Content-Type: application/json
+
+{
+  "tipo": "envio",
+  "direccionEnvioId": {{direccionEnvioId}}
+}
+
+### F. Preview entrega
+# @name previewEntrega
+POST {{baseUrl}}/api/compras/{{compraId}}/entrega/preview
+Authorization: Bearer {{tokenComprador}}
+Content-Type: application/json
+
+{
+  "tipo": "envio",
+  "direccionEnvioId": {{direccionEnvioId}}
+}
+
+### F. Preview retiro
+# @name previewRetiro
+POST {{baseUrl}}/api/compras/{{compraId}}/entrega/preview
+Authorization: Bearer {{tokenComprador}}
+Content-Type: application/json
+
+{
+  "tipo": "retiro"
+}
+
+### G. Pagar extras
+# @name pagarExtras
+POST {{baseUrl}}/api/compras/{{compraId}}/pagar
+Authorization: Bearer {{tokenComprador}}
+Content-Type: application/json
+
+{
+  "medioPagoId": {{medioPagoCompradorId}},
+  "idempotencyKey": "{{idempotencyExtras}}"
+}
+
+### H. Pagar articulo + multa
+# @name pagarArticuloMasMulta
+POST {{baseUrl}}/api/compras/{{compraMultaId}}/pagar-con-multa
+Authorization: Bearer {{tokenMulta}}
+Content-Type: application/json
+
+{
+  "medioPagoId": {{medioPagoMultaId}},
+  "idempotencyKey": "{{idempotencyMulta}}"
+}
+
+### I. Documentos de compra
+# @name documentosCompra
+GET {{baseUrl}}/api/compras/{{compraId}}/documentos
+Authorization: Bearer {{tokenComprador}}
+
+### I. Documentos compra con multa
+# @name documentosCompraMulta
+GET {{baseUrl}}/api/compras/{{compraMultaId}}/documentos
+Authorization: Bearer {{tokenMulta}}
+
+### J. Descargar documento
+# @name descargarDocumentoCompra
+GET {{baseUrl}}/api/compras/{{compraId}}/documentos/{{documentoId}}/descargar
+Authorization: Bearer {{tokenComprador}}
+
+### K. Admin - simular pago exitoso
+# @name adminSimularPagoExitoso
+POST {{baseUrl}}/api/admin/compras/{{compraId}}/simular-pago-exitoso
+X-QuickBid-Admin-Key: {{adminKey}}
+Content-Type: application/json
+
+{
+  "cuentaId": {{cuentaCompradorId}},
+  "medioPagoId": {{medioPagoCompradorId}},
+  "tipo": "extras"
+}
+
+### K. Admin - simular falla pago
+# @name adminSimularFallaPago
+POST {{baseUrl}}/api/admin/compras/{{compraId}}/simular-falla-pago
+X-QuickBid-Admin-Key: {{adminKey}}
+Content-Type: application/json
+
+{
+  "cuentaId": {{cuentaCompradorId}},
+  "medioPagoId": {{medioPagoCompradorId}},
+  "tipo": "extras"
+}
+
+### K. Admin - PELIGRO abandonar compra
+# @name adminAbandonarCompra
+POST {{baseUrl}}/api/admin/compras/{{compraId}}/abandonar?retiro=false
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### K. Admin - PELIGRO abandonar compra por retiro
+# @name adminAbandonarCompraRetiro
+POST {{baseUrl}}/api/admin/compras/{{compraId}}/abandonar?retiro=true
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### K. Admin - PELIGRO vencer multa
+# @name adminVencerMulta
+POST {{baseUrl}}/api/admin/multas/{{multaId}}/vencer
+X-QuickBid-Admin-Key: {{adminKey}}
+
+### K. Admin - marcar multa pagada
+# @name adminMarcarMultaPagada
+POST {{baseUrl}}/api/admin/multas/{{multaId}}/marcar-pagada
+X-QuickBid-Admin-Key: {{adminKey}}

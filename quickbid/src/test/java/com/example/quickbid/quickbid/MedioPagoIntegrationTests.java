@@ -2,6 +2,7 @@ package com.example.quickbid.quickbid;
 
 import static org.hamcrest.Matchers.anyOf;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
@@ -39,7 +40,7 @@ import com.example.quickbid.quickbid.security.AdminInternalAuthenticationFilter;
 import com.example.quickbid.quickbid.security.AuthRateLimitService;
 import com.jayway.jsonpath.JsonPath;
 
-@SpringBootTest
+@SpringBootTest(properties = "app.mail.enabled=false")
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Sql(scripts = "/auth-test-data.sql", executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
@@ -260,6 +261,28 @@ class MedioPagoIntegrationTests {
 				SELECT COUNT(*) FROM app_medios_pago
 				WHERE cuenta_id<>3001 AND moneda='USD' AND principal=true AND deleted_at IS NULL
 				""", Integer.class));
+	}
+
+	@Test
+	void listaExponeUsoConfiableSoloCuandoExisteLimite() throws Exception {
+		request(get("/api/usuario/medios-pago"), "aprobado@quickbid.demo")
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data[?(@.id == 5001)].limiteMonto", contains(500000.0)))
+				.andExpect(jsonPath("$.data[?(@.id == 5001)].limiteUsado", contains(50200.0)))
+				.andExpect(jsonPath("$.data[?(@.id == 5001)].limiteDisponible", contains(449800.0)))
+				.andExpect(jsonPath("$.data[?(@.id == 5003)].limiteMonto", contains(nullValue())))
+				.andExpect(jsonPath("$.data[?(@.id == 5003)].limiteUsado", contains(nullValue())))
+				.andExpect(jsonPath("$.data[?(@.id == 5003)].limiteDisponible", contains(nullValue())));
+	}
+
+	@Test
+	void limiteDisponibleNuncaEsNegativoAnteConsumoMayorAlLimite() throws Exception {
+		jdbc.update("UPDATE app_medios_pago SET consumo_actual=600000 WHERE id=5001");
+
+		request(get("/api/usuario/medios-pago"), "aprobado@quickbid.demo")
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data[?(@.id == 5001)].limiteUsado", contains(625100.0)))
+				.andExpect(jsonPath("$.data[?(@.id == 5001)].limiteDisponible", contains(0)));
 	}
 
 	@Test

@@ -57,12 +57,12 @@ public class BidTransactionService {
 		if (replay != null) return new AcceptedBid(replay, null, true);
 
 		Auction auction = auction(auctionId);
-		if (!auction.state().equals("en_vivo")) throw conflict("La subasta no esta en vivo", "AUCTION_NOT_LIVE");
-		if (!live.version().equals(request.clientStateVersion())) throw conflict("El estado de la subasta cambio", "BID_OUTDATED_STATE");
+		if (!auction.state().equals("en_vivo")) throw conflict("La subasta no está en vivo", "AUCTION_NOT_LIVE");
+		if (!live.version().equals(request.clientStateVersion())) throw conflict("El estado de la subasta cambió", "BID_OUTDATED_STATE");
 		Item item = item(accountId, auctionId, request.itemCatalogoId());
-		if (live.itemId() == null || !live.itemId().equals(request.itemCatalogoId())) throw conflict("El lote ya no esta activo", "ITEM_NOT_ACTIVE");
-		if (categoryOrder(account.category()) == 0 || categoryOrder(auction.category()) == 0) throw unprocessable("Categoria invalida", "INVALID_CATEGORY");
-		if (categoryOrder(account.category()) < categoryOrder(auction.category())) throw forbidden("Categoria insuficiente", "AUCTION_CATEGORY_FORBIDDEN");
+		if (live.itemId() == null || !live.itemId().equals(request.itemCatalogoId())) throw conflict("El lote ya no está activo", "ITEM_NOT_ACTIVE");
+		if (categoryOrder(account.category()) == 0 || categoryOrder(auction.category()) == 0) throw unprocessable("Categoría inválida", "INVALID_CATEGORY");
+		if (categoryOrder(account.category()) < categoryOrder(auction.category())) throw forbidden("Categoría insuficiente", "AUCTION_CATEGORY_FORBIDDEN");
 
 		PriorBid prior = bestBid(auctionId, request.itemCatalogoId());
 		Payment payment = payment(accountId, request.medioPagoId());
@@ -182,9 +182,9 @@ public class BidTransactionService {
 	private void validatePayment(Payment payment, String currency, BigDecimal amount, Long ignoredReservationBidId) {
 		if (payment.deletedAt() != null) throw forbidden("El medio de pago fue eliminado", "PAYMENT_METHOD_NOT_VERIFIED");
 		if (!payment.currency().equals(currency)) throw unprocessable("Moneda incompatible", "PAYMENT_METHOD_CURRENCY_MISMATCH");
-		if (!payment.state().equals("verificado")) throw forbidden("El medio de pago no esta verificado", "PAYMENT_METHOD_NOT_VERIFIED");
+		if (!payment.state().equals("verificado")) throw forbidden("El medio de pago no está verificado", "PAYMENT_METHOD_NOT_VERIFIED");
 		if (payment.verifiedUntil() == null || !payment.verifiedUntil().isAfter(OffsetDateTime.now())) {
-			throw forbidden("La verificacion del medio de pago vencio", "PAYMENT_METHOD_VERIFICATION_EXPIRED");
+			throw forbidden("La verificación del medio de pago venció", "PAYMENT_METHOD_VERIFICATION_EXPIRED");
 		}
 		BigDecimal reserved = activeReservations(payment.id(), ignoredReservationBidId);
 		if (payment.limit() == null || amount.compareTo(payment.limit().subtract(payment.consumed()).subtract(reserved)) > 0) {
@@ -261,7 +261,7 @@ public class BidTransactionService {
 		if (amount.compareTo(minimum) < 0) throw unprocessable("Monto menor al minimo permitido", "BID_AMOUNT_BELOW_MINIMUM");
 		if (!UNRESTRICTED_CATEGORIES.contains(category)) {
 			BigDecimal maximum = (previous == null ? base : previous).add(base.multiply(TWENTY_PERCENT));
-			if (amount.compareTo(maximum) > 0) throw unprocessable("Monto mayor al maximo permitido", "BID_AMOUNT_ABOVE_MAXIMUM");
+			if (amount.compareTo(maximum) > 0) throw unprocessable("Monto mayor al máximo permitido", "BID_AMOUNT_ABOVE_MAXIMUM");
 		}
 	}
 

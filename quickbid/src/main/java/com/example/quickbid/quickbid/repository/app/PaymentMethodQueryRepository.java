@@ -1,5 +1,7 @@
 package com.example.quickbid.quickbid.repository.app;
 
+import java.math.BigDecimal;
+
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -30,6 +32,15 @@ public class PaymentMethodQueryRepository {
 				  SELECT medio_pago_id FROM app_pagos WHERE medio_pago_id=? AND estado='pendiente'
 				) pending_operations
 				""", paymentMethodId, paymentMethodId, paymentMethodId, paymentMethodId, paymentMethodId) > 0;
+	}
+
+	public BigDecimal activeReservationsForPaymentMethod(Long paymentMethodId) {
+		BigDecimal value = jdbc.queryForObject("""
+				SELECT COALESCE(SUM(monto),0)
+				FROM app_reservas_medio_pago
+				WHERE medio_pago_id=? AND estado='activa'
+				""", BigDecimal.class, paymentMethodId);
+		return value == null ? BigDecimal.ZERO : value.max(BigDecimal.ZERO);
 	}
 
 	public ConsignmentRequirements findConsignmentRequirements(Long accountId) {

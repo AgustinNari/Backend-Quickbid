@@ -2,12 +2,12 @@
 # QuickBid - 00 smoke readonly / seguro para ejecutar muchas veces
 # -----------------------------------------------------------------------------
 # Requiere backend levantado con APP_ADMIN_ENABLED=true y
-# APP_ADMIN_INTERNAL_KEY=test-admin-key.
+# APP_ADMIN_INTERNAL_KEY=TU_ADMIN_KEY.
 # No modifica datos salvo login/refresh/recuperación.
 # -----------------------------------------------------------------------------
 
 @baseUrl = http://localhost:8080
-@adminKey = test-admin-key
+@adminKey = TU_ADMIN_KEY
 
 @cuentaAprobadaId = 3001
 @cuentaMultaId = 3002

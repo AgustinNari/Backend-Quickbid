@@ -1,6 +1,7 @@
 package com.example.quickbid.quickbid.dto.response;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.List;
 
@@ -22,12 +23,16 @@ public final class ConsignmentDtos {
 			String categoriaSugerida, String historia, String artistaDisenador, String fechaObjeto, String estado,
 			Boolean requiereDocumentacionOrigen, String motivoRechazo, Integer productoId, Integer itemCatalogoId,
 			Integer subastaId, BigDecimal valorBase, String moneda, BigDecimal comisionCompradorPct,
-			BigDecimal comisionVendedorPct, BigDecimal netoEstimado, String acuerdoTexto, String ubicacionFisica,
-			Policy poliza, List<File> fotos, List<File> documentosOrigen, Return devolucion, Liquidation liquidacion,
+			BigDecimal comisionVendedorPct, BigDecimal netoEstimado, String acuerdoTexto,
+			OffsetDateTime acuerdoEnviadoAt, OffsetDateTime acuerdoAceptadoAt, LocalDateTime subastaFechaHora,
+			String ubicacionFisica,
+			Policy poliza, List<File> fotos, List<File> documentosOrigen, List<File> documentosGenerados,
+			Return devolucion, Liquidation liquidacion,
 			OffsetDateTime createdAt, OffsetDateTime updatedAt) {
 	}
 
-	public record File(Long archivoId, String filename, String contentType, Long sizeBytes, String estado) {
+	public record File(Long archivoId, String filename, String contentType, Long sizeBytes, String estado,
+			Boolean downloadAvailable, String downloadUrl, String tipo) {
 	}
 
 	public record Return(Long id, String modalidad, BigDecimal costo, String moneda, String estado, Long pagoId,

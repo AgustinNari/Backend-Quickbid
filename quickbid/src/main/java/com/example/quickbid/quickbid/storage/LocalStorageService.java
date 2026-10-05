@@ -20,10 +20,12 @@ public class LocalStorageService implements StorageService {
 			"image/jpeg", ".jpg",
 			"application/pdf", ".pdf");
 	private final Path root;
+	private final Path realRoot;
 
 	public LocalStorageService(StorageProperties properties) throws IOException {
 		root = properties.storagePath().toAbsolutePath().normalize();
 		Files.createDirectories(root);
+		realRoot = root.toRealPath();
 	}
 
 	public StoredFile store(String originalFilename, String contentType, InputStream content) {
@@ -42,11 +44,28 @@ public class LocalStorageService implements StorageService {
 
 	public InputStream load(String storagePath) {
 		try {
-			Path path = root.resolve(storagePath).normalize();
-			if (!path.startsWith(root)) throw new IllegalArgumentException("Invalid path");
+			Path path = resolvedExistingPath(storagePath);
 			return Files.newInputStream(path);
-		} catch (IOException exception) {
+		} catch (IOException | IllegalArgumentException exception) {
 			throw new IllegalStateException(exception);
 		}
+	}
+
+	@Override
+	public boolean exists(String storagePath) {
+		try {
+			return Files.isRegularFile(resolvedExistingPath(storagePath));
+		} catch (IOException | IllegalArgumentException exception) {
+			return false;
+		}
+	}
+
+	private Path resolvedExistingPath(String storagePath) throws IOException {
+		if (storagePath == null || storagePath.isBlank()) throw new IllegalArgumentException("Invalid path");
+		Path candidate = root.resolve(storagePath).normalize();
+		if (!candidate.startsWith(root)) throw new IllegalArgumentException("Invalid path");
+		Path realPath = candidate.toRealPath();
+		if (!realPath.startsWith(realRoot)) throw new IllegalArgumentException("Invalid path");
+		return realPath;
 	}
 }

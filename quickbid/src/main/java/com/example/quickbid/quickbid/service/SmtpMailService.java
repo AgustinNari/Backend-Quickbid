@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 @ConditionalOnProperty(name = "app.mail.enabled", havingValue = "true")
+@ConditionalOnProperty(name = "app.mail.provider", havingValue = "smtp", matchIfMissing = true)
 public class SmtpMailService implements MailService {
 	private static final Logger LOGGER = LoggerFactory.getLogger(SmtpMailService.class);
 
@@ -19,10 +20,19 @@ public class SmtpMailService implements MailService {
 	private final String from;
 
 	public SmtpMailService(JavaMailSender sender, MailTemplates templates,
-			@Value("${app.mail.from}") String from) {
+			@Value("${app.mail.from}") String from,
+			@Value("${spring.mail.host:}") String host,
+			@Value("${spring.mail.username:}") String username,
+			@Value("${spring.mail.password:}") String password,
+			@Value("${spring.mail.properties.mail.smtp.auth:true}") boolean smtpAuth) {
 		this.sender = sender;
 		this.templates = templates;
 		this.from = requiredEmail(from, "APP_MAIL_FROM");
+		required(host, "SPRING_MAIL_HOST");
+		if (smtpAuth) {
+			required(username, "SPRING_MAIL_USERNAME");
+			required(password, "SPRING_MAIL_PASSWORD");
+		}
 	}
 
 	@Override
@@ -45,9 +55,15 @@ public class SmtpMailService implements MailService {
 			message.setText(template.body());
 			sender.send(message);
 		} catch (MailException exception) {
-			LOGGER.warn("SMTP delivery failed type={}", type);
+			LOGGER.warn("SMTP delivery failed type={} error={}", type, rootCauseType(exception));
 			throw new MailDeliveryException("No se pudo enviar el correo", exception);
 		}
+	}
+
+	private String rootCauseType(Throwable exception) {
+		Throwable cause = exception;
+		while (cause.getCause() != null && cause.getCause() != cause) cause = cause.getCause();
+		return cause.getClass().getSimpleName();
 	}
 
 	private String required(String value, String field) {
