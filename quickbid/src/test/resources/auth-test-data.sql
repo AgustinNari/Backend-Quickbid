@@ -290,6 +290,8 @@ CREATE TABLE app_subasta_ext (
     segmento varchar(100),
     estado_operativo varchar(30) NOT NULL,
     permite_inscripcion_online boolean NOT NULL DEFAULT true,
+    monto_minimo integer,
+    monto_maximo integer,
     created_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

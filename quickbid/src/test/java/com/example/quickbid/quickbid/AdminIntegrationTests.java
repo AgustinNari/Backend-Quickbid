@@ -8,6 +8,7 @@ import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -279,6 +280,8 @@ class AdminIntegrationTests {
 				.andExpect(status().isOk()).andExpect(jsonPath("$.data.estado").value("programada"))
 				.andReturn().getResponse().getContentAsString();
 		Integer id = ((Number) JsonPath.read(json, "$.data.id")).intValue();
+		assertNull(jdbc.queryForObject("SELECT monto_minimo FROM app_subasta_ext WHERE subasta_id=?", Integer.class, id));
+		assertNull(jdbc.queryForObject("SELECT monto_maximo FROM app_subasta_ext WHERE subasta_id=?", Integer.class, id));
 		jdbc.update("""
 				INSERT INTO app_inscripciones_subasta(subasta_id,cuenta_id,medio_pago_id,estado)
 				VALUES (?,3001,5001,'aprobada')
@@ -295,6 +298,25 @@ class AdminIntegrationTests {
 				.content("{\"itemCatalogoId\":9006}")).andExpect(status().isOk());
 		assertEquals(9006, jdbc.queryForObject("SELECT item_catalogo_activo_id FROM app_subasta_estado_vivo WHERE subasta_id=6004",
 				Integer.class));
+	}
+
+	@Test void adminValidaLimitesOpcionalesDeSubasta() throws Exception {
+		String date = LocalDate.now().plusDays(20).toString();
+		String body = """
+				{"fecha":"%s","hora":"18:30:00","titulo":"Subasta admin","ubicacion":"Casa central",
+				"categoria":"comun","moneda":"ARS",%s}
+				""";
+		for (String limits : List.of("\"montoMinimo\":-1", "\"montoMaximo\":-1",
+				"\"montoMinimo\":200,\"montoMaximo\":100")) {
+			admin(post("/api/admin/subastas").contentType(MediaType.APPLICATION_JSON).content(body.formatted(date, limits)))
+					.andExpect(status().isBadRequest())
+					.andExpect(jsonPath("$.errors[0].code").value("INVALID_AMOUNT_RANGE"));
+		}
+		for (String limits : List.of("\"montoMinimo\":100", "\"montoMaximo\":200",
+				"\"montoMinimo\":100,\"montoMaximo\":200")) {
+			admin(post("/api/admin/subastas").contentType(MediaType.APPLICATION_JSON).content(body.formatted(date, limits)))
+					.andExpect(status().isOk());
+		}
 	}
 
 	@Test void adminCierraLoteConPujaYSinPujas() throws Exception {

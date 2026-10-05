@@ -738,7 +738,7 @@ public class AdminService {
 
 	private void requireAuction(Integer id) { auction(id); }
 
-	private void validateAuction(LocalDate date, LocalTime time, String category, String currency, int montoMinimo, int montoMaximo) {
+	private void validateAuction(LocalDate date, LocalTime time, String category, String currency, Integer montoMinimo, Integer montoMaximo) {
 		if (demoShortAuctionsEnabled) {
 			if (!LocalDateTime.of(date, time).isAfter(LocalDateTime.now().plusMinutes(5))) {
 				throw bad("La fecha y hora deben superar cinco minutos", "INVALID_AUCTION_DATE");
@@ -748,7 +748,10 @@ public class AdminService {
 		}
 		if (!CATEGORIES.contains(category.toLowerCase())) throw bad("Categoría inválida", "INVALID_CATEGORY");
 		if (currency != null && !Set.of("ARS", "USD").contains(currency.toUpperCase())) throw bad("Moneda inválida", "INVALID_CURRENCY");
-		if (montoMinimo < 0 || montoMaximo < 0 || montoMinimo > montoMaximo) throw bad("Montos inválidos", "INVALID_AMOUNT_RANGE");
+		if ((montoMinimo != null && montoMinimo < 0) || (montoMaximo != null && montoMaximo < 0)
+				|| (montoMinimo != null && montoMaximo != null && montoMinimo > montoMaximo)) {
+			throw bad("Montos inválidos", "INVALID_AMOUNT_RANGE");
+		}
 	}
 
 	private void requireDevOrTest() {
