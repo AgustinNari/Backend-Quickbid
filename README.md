@@ -1,62 +1,153 @@
 # QuickBid — Backend
 
-Backend de QuickBid, una aplicación de subastas desarrollada en equipo. Expone una API REST para registro y autenticación, catálogo de subastas, pujas en tiempo real, compras, pagos, consignaciones, perfil y notificaciones. Incluye datos y herramientas de demostración.
+Backend service for QuickBid, a mobile auction application developed as a team project.
 
-La aplicación móvil está en [Frontend-Quickbid](https://github.com/AgustinNari/Frontend-Quickbid).
+It provides a REST API for registration and authentication, auction catalogs, real-time bidding, purchases, payments, consignments, user profiles, and notifications. The repository also includes demo data and tools for testing and local operation.
 
-## Stack y estructura
+The mobile application is available in [Frontend-Quickbid](https://github.com/AgustinNari/Frontend-Quickbid).
 
-Java 17, Spring Boot 4.0.6, Maven, Spring Security, JPA, PostgreSQL y Flyway. El proyecto ejecutable está en `quickbid/`: controladores REST, servicios de negocio, repositorios, entidades y adaptadores de correo y almacenamiento. Las tablas de la aplicación complementan el esquema legacy mediante migraciones versionadas.
+## Tech Stack
 
-La autenticación utiliza JWT y refresh tokens con rotación. Las pujas y los eventos de subastas se transmiten mediante WebSocket/STOMP. Los endpoints administrativos son auxiliares para operación manual y pruebas; no hay una interfaz de administración propia.
+- Java 17
+- Spring Boot 4
+- Maven
+- Spring Security
+- JWT authentication and refresh-token rotation
+- JPA
+- PostgreSQL
+- Flyway
+- WebSocket / STOMP
+- Docker
+- Spring Boot Actuator
 
-## Ejecución local
+The executable project is located in `quickbid/`.
 
-Se necesitan JDK 17 y una base PostgreSQL disponible. Crear una base vacía llamada `quickbid` y configurar las variables en la terminal que ejecutará el backend. Ejemplo en PowerShell:
+## Architecture
+
+The backend is organized around REST controllers, business services, repositories, entities, and adapters for email and file storage.
+
+Application-specific tables extend the legacy database model through versioned Flyway migrations.
+
+Authentication uses JWT access tokens and rotating refresh tokens. Auction bids and live auction events are delivered through WebSocket/STOMP.
+
+Administrative endpoints are provided as auxiliary operational and testing tools; the project does not include a dedicated administration UI.
+
+## Local Setup
+
+Requirements:
+
+- JDK 17
+- PostgreSQL
+- Docker, optionally
+
+Create an empty PostgreSQL database named `quickbid` and configure the required environment variables.
+
+PowerShell example:
 
 ```powershell
 cd quickbid
+
 $env:DB_URL = 'jdbc:postgresql://localhost:5432/quickbid'
 $env:DB_USERNAME = 'postgres'
-$env:DB_PASSWORD = '<clave-local>'
-$env:APP_JWT_SECRET = '<secreto-aleatorio-de-al-menos-32-caracteres>'
+$env:DB_PASSWORD = '<local-password>'
+$env:APP_JWT_SECRET = '<random-secret-with-at-least-32-characters>'
+
 .\mvnw.cmd spring-boot:run
 ```
 
-En Linux/macOS, exportar las mismas variables y usar `./mvnw spring-boot:run`. El wrapper descarga Maven si no está disponible. Flyway aplica las migraciones al iniciar y JPA valida el esquema. El puerto predeterminado es `8080`; health está en `/actuator/health`.
+On Linux/macOS, export the same variables and run:
 
-## Configuración
+```bash
+./mvnw spring-boot:run
+```
 
-| Variables | Uso |
+Flyway applies the database migrations on startup and JPA validates the resulting schema.
+
+The default HTTP port is `8080`.
+
+Health endpoint:
+
+```text
+/actuator/health
+```
+
+## Configuration
+
+| Variable | Purpose |
 | --- | --- |
-| `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` | Conexión PostgreSQL. |
-| `APP_JWT_SECRET` | Firma JWT; requiere al menos 32 caracteres. |
-| `PORT` | Puerto HTTP; por defecto `8080`. |
-| `APP_FILES_STORAGE_PATH` | Archivos subidos; por defecto `./uploads`. |
-| `APP_MAIL_ENABLED`, `APP_MAIL_PROVIDER`, `APP_MAIL_FROM` | Correo; desactivado por defecto. Proveedores: `smtp`, `resend` o `brevo`. |
-| `SPRING_MAIL_*`, `APP_RESEND_API_KEY`, `APP_RESEND_API_URL`, `APP_BREVO_API_KEY` | Credenciales y configuración del proveedor elegido. Resend requiere una URL de API explícita. |
-| `APP_MAIL_NOTIFICATIONS_ENABLED` | Emails de eventos de negocio; por defecto `false`. |
-| `APP_FRONTEND_BASE_URL`, `APP_PUBLIC_BASE_URL` | Destinos de enlaces de autenticación y URL pública del backend. Para la app móvil, configurar `APP_FRONTEND_BASE_URL=quickbid://auth`. |
-| `APP_ADMIN_ENABLED`, `APP_ADMIN_INTERNAL_KEY` | Acceso administrativo auxiliar; desactivado por defecto. |
+| `DB_URL` | PostgreSQL JDBC URL |
+| `DB_USERNAME` | PostgreSQL user |
+| `DB_PASSWORD` | PostgreSQL password |
+| `APP_JWT_SECRET` | JWT signing secret |
+| `PORT` | HTTP port, default `8080` |
+| `APP_FILES_STORAGE_PATH` | Local file-storage directory |
+| `APP_MAIL_ENABLED` | Enables email delivery |
+| `APP_MAIL_PROVIDER` | Email provider: `smtp`, `resend`, or `brevo` |
+| `APP_MAIL_FROM` | Sender address |
+| `APP_MAIL_NOTIFICATIONS_ENABLED` | Enables business-event emails |
+| `APP_FRONTEND_BASE_URL` | Base URL used for authentication links |
+| `APP_PUBLIC_BASE_URL` | Public backend URL |
+| `APP_ADMIN_ENABLED` | Enables auxiliary administration endpoints |
+| `APP_ADMIN_INTERNAL_KEY` | Internal key for administrative operations |
 
-El detalle de opciones y valores predeterminados está en `quickbid/src/main/resources/application.properties`. No versionar credenciales reales. El perfil `dev` ofrece valores locales para PostgreSQL y muestra detalles de health; no debe utilizarse como perfil público de despliegue.
+Provider-specific variables are documented in:
 
-## Compilación y tests
+```text
+quickbid/src/main/resources/application.properties
+```
 
-Desde `quickbid/`:
+Real credentials should never be committed to the repository.
+
+## Testing
+
+From `quickbid/`:
+
+```bash
+./mvnw clean verify
+```
+
+On Windows:
 
 ```powershell
 .\mvnw.cmd clean verify
 ```
 
-Los tests utilizan el perfil `test`, H2 en memoria y datos de prueba propios; no requieren PostgreSQL ni correo real. Para ejecutar solo tests: `.\mvnw.cmd test`. Los ejemplos HTTP están en `quickbid/docs/api-examples.http`; `quickbid/docs/` incluye pruebas por flujo, paneles auxiliares y consultas SQL de validación. Algunas solicitudes modifican datos: usar una base de prueba.
+Tests run with the `test` profile using an in-memory H2 database and dedicated test fixtures.
+
+Additional HTTP examples and validation utilities are available under:
+
+```text
+quickbid/docs/
+```
+
+Some examples modify data and should therefore be executed against a test database.
 
 ## Docker
 
-Desde `quickbid/`, `docker build -t quickbid-backend .` compila el JAR en una imagen con Java 17. Ejecutar con `docker run --rm -p 8080:8080 --env-file <archivo-local> quickbid-backend`. La base PostgreSQL debe ser accesible desde el contenedor; para conservar uploads, montar un volumen en la ruta configurada. El Dockerfile omite tests durante el empaquetado; ejecutarlos antes de construir la imagen.
+Build the image from `quickbid/`:
 
-## Alcance de demostración
+```bash
+docker build -t quickbid-backend .
+```
 
-Las migraciones incluyen cuentas y datos ficticios de demo. Las opciones `APP_DEMO_*` controlan herramientas de demostración; no constituyen una integración comercial de pagos. La simulación de fallo externo de adjudicación está habilitada por defecto con una probabilidad del 1 %, configurable mediante `APP_PAYMENT_ADJUDICATION_EXTERNAL_FAILURE_ENABLED` y `APP_PAYMENT_ADJUDICATION_EXTERNAL_FAILURE_PROBABILITY_PERCENT`.
+Run it with:
 
-Con correo desactivado, la entrega es simulada y no permite recibir enlaces reales de registro o recuperación. El broker STOMP, la presencia y el rate limiting mantienen estado en memoria por instancia. El almacenamiento de archivos es local. Estas condiciones deben considerarse al reproducir la demo o desplegar varias instancias.
+```bash
+docker run --rm -p 8080:8080 --env-file <local-env-file> quickbid-backend
+```
+
+PostgreSQL must be reachable from the container. File uploads can be persisted by mounting a volume at the configured storage path.
+
+The Docker image build skips tests, so the test suite should be executed beforehand.
+
+## Demo Scope
+
+The database migrations include fictional demo accounts and data.
+
+`APP_DEMO_*` options control demonstration-related behavior and do not represent a commercial payment integration.
+
+The project also includes a configurable simulation of external payment-adjudication failures.
+
+When email delivery is disabled, registration and password-recovery emails are simulated.
+
+The STOMP broker, presence information, and rate limiting keep state in memory per application instance, while uploaded files use local storage. These constraints should be considered when reproducing the demo or running multiple instances.
