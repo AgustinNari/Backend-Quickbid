@@ -4,7 +4,7 @@ Backend service for QuickBid, a mobile auction application developed as a team p
 
 It provides a REST API for registration and authentication, auction catalogs, real-time bidding, purchases, payments, consignments, user profiles, and notifications. The repository also includes demo data and tools for testing and local operation.
 
-The mobile application is available in [Frontend-Quickbid](https://github.com/AgustinNari/Frontend-Quickbid).
+The mobile application is available in [quickbid-mobile](https://github.com/AgustinNari/quickbid-mobile).
 
 ## Tech Stack
 
