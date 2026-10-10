@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="940" viewBox="0 0 1280 940" role="img" aria-labelledby="svg-title svg-desc">
+<title id="svg-title">QuickBid Backend Architecture</title><desc id="svg-desc">Mobile application communicates through REST and WebSocket STOMP with a Spring Boot application. Core services store data in PostgreSQL via JPA and JDBC with Flyway migrations, use local file storage and optional mail provider delivery.</desc>
+<defs><marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 8 4 L 0 8 z" fill="#90a7c2"/></marker></defs>
+<rect x="0" y="0" width="1280" height="940" fill="#0b1220"/>
+<rect x="22" y="22" width="1236" height="896" rx="26" fill="none" stroke="#30465f" stroke-width="1.5"/>
+<text x="68" y="77" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="35" font-weight="700" fill="#f0f6ff">QUICKBID  /  BACKEND ARCHITECTURE</text>
+<text x="69" y="108" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="400" fill="#b0c0d6">Auction marketplace · Java 17 · Spring Boot 4 · PostgreSQL</text>
+<rect x="367" y="141" width="545" height="76" rx="15" fill="#152740" stroke="#30465f" stroke-width="1.6"/>
+<rect x="368" y="142" width="5" height="74" rx="2.5" fill="#4cc9f0"/>
+<text x="389" y="174" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700" fill="#f0f6ff">QuickBid Mobile App</text>
+<text x="389" y="201" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#b0c0d6">Auction catalog · live bidding · purchases</text>
+<path d="M 507 217 V 240 H 345 V 271" fill="none" stroke="#90a7c2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M 771 217 V 240 H 946 V 271" fill="none" stroke="#90a7c2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="84" y="272" width="532" height="125" rx="15" fill="#101e31" stroke="#30465f" stroke-width="1.6"/>
+<rect x="85" y="273" width="5" height="123" rx="2.5" fill="#4dd9be"/>
+<text x="106" y="305" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700" fill="#f0f6ff">REST API  /  HTTP</text>
+<text x="106" y="332" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#b0c0d6">Controllers · Spring Security · JWT + refresh tokens</text>
+<text x="106" y="355" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#b0c0d6">Auctions, users, purchases and consignments</text>
+<rect x="664" y="272" width="532" height="125" rx="15" fill="#101e31" stroke="#30465f" stroke-width="1.6"/>
+<rect x="665" y="273" width="5" height="123" rx="2.5" fill="#b4a1ff"/>
+<text x="686" y="305" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700" fill="#f0f6ff">WEBSOCKET  /  STOMP</text>
+<text x="686" y="332" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#b0c0d6">Endpoint /ws · in-memory message broker</text>
+<text x="686" y="355" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#b0c0d6">Topic updates + authorized user queues</text>
+<path d="M 345 397 V 466" fill="none" stroke="#90a7c2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M 947 466 V 397" fill="none" stroke="#90a7c2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="84" y="468" width="1112" height="204" rx="18" fill="#13243a" stroke="#4e6988" stroke-width="1.6"/>
+<rect x="104" y="484" width="195" height="28" rx="13" fill="#102f43" stroke="#285476" stroke-width="1.6"/>
+<text x="201.5" y="503" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="600" fill="#4cc9f0">SPRING BOOT CORE</text>
+<text x="110" y="534" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#f0f6ff">Business services</text>
+<text x="110" y="557" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#b0c0d6">API operations, validation, transactions and event publication</text>
+<rect x="106" y="573" width="328" height="77" rx="15" fill="#122a41" stroke="#30465f" stroke-width="1.6"/>
+<rect x="107" y="574" width="5" height="75" rx="2.5" fill="#4cc9f0"/>
+<text x="128" y="606" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700" fill="#f0f6ff">Transactional Bidding</text>
+<text x="128" y="633" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#b0c0d6">JDBC · locking · idempotency</text>
+<rect x="476" y="573" width="327" height="77" rx="15" fill="#122a41" stroke="#30465f" stroke-width="1.6"/>
+<rect x="477" y="574" width="5" height="75" rx="2.5" fill="#4dd9be"/>
+<text x="498" y="606" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700" fill="#f0f6ff">Commerce Workflows</text>
+<text x="498" y="633" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#b0c0d6">Auctions · purchases · consignments</text>
+<rect x="845" y="573" width="329" height="77" rx="15" fill="#122a41" stroke="#30465f" stroke-width="1.6"/>
+<rect x="846" y="574" width="5" height="75" rx="2.5" fill="#b4a1ff"/>
+<text x="867" y="606" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700" fill="#f0f6ff">Realtime Publishers</text>
+<text x="867" y="633" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#b0c0d6">Bid and auction events after commit</text>
+<path d="M 315 672 V 732" fill="none" stroke="#90a7c2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M 699 672 V 732" fill="none" stroke="#90a7c2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M 1026 672 V 732" fill="none" stroke="#90a7c2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="84" y="733" width="449" height="116" rx="15" fill="#101e31" stroke="#30465f" stroke-width="1.6"/>
+<rect x="85" y="734" width="5" height="114" rx="2.5" fill="#4cc9f0"/>
+<text x="106" y="766" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700" fill="#f0f6ff">PostgreSQL</text>
+<text x="106" y="793" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#b0c0d6">JPA/Hibernate + JDBC transactions</text>
+<text x="106" y="816" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#b0c0d6">Flyway versioned schema migrations</text>
+<rect x="552" y="733" width="292" height="116" rx="15" fill="#101e31" stroke="#30465f" stroke-width="1.6"/>
+<rect x="553" y="734" width="5" height="114" rx="2.5" fill="#4dd9be"/>
+<text x="574" y="766" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700" fill="#f0f6ff">Local File Storage</text>
+<text x="574" y="793" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#b0c0d6">Uploaded files and documents</text>
+<text x="574" y="816" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#b0c0d6">Filesystem adapter</text>
+<rect x="863" y="733" width="333" height="116" rx="15" fill="#101e31" stroke="#30465f" stroke-width="1.6"/>
+<rect x="864" y="734" width="5" height="114" rx="2.5" fill="#ffd084"/>
+<text x="885" y="766" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700" fill="#f0f6ff">Email (configurable)</text>
+<text x="885" y="793" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#b0c0d6">Simulated or SMTP / Resend / Brevo</text>
+<text x="885" y="816" text-anchor="start" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#b0c0d6">Delivery is optional</text>
+<text x="640" y="891" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="400" fill="#90a7c2">Conceptual application architecture · one backend instance · no external STOMP broker implied</text>
+</svg>

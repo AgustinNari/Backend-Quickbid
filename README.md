@@ -26,6 +26,8 @@ The executable project is located in `quickbid/`.
 
 ## Architecture
 
+[![QuickBid backend architecture showing REST, WebSocket/STOMP, transactional bidding, PostgreSQL, file storage and optional email delivery](docs/architecture/quickbid-backend-architecture.svg)](docs/architecture/quickbid-backend-architecture.svg)
+
 The backend is organized around REST controllers, business services, repositories, entities, and adapters for email and file storage.
 
 Application-specific tables extend the legacy database model through versioned Flyway migrations.
