@@ -97,7 +97,12 @@ public final class SubastaDtos {
 			Long segundosRestantes, Boolean miPujaGanadora, String estadoLote, Boolean adjudicado,
 			String siguienteAccion, Boolean esperandoPrimeraPuja, Boolean timerActivo, String mensajeEstado,
 			OffsetDateTime deadlineActual, String tipoTimer, OffsetDateTime proximoLoteAt,
-			OffsetDateTime subastaFinalizaAt, Integer siguienteItemId, Integer siguienteLoteOrden) {
+			OffsetDateTime subastaFinalizaAt, Integer siguienteItemId, Integer siguienteLoteOrden,
+			List<BidHistory> historialReciente) {
+	}
+
+	public record BidHistory(Long pujaId, BigDecimal monto, Long versionEstado, Integer numeroPostor,
+			String postorAlias, String estado) {
 	}
 
 	public record Bid(Long id, Integer subastaId, Integer itemCatalogoId, String estado, BigDecimal monto,

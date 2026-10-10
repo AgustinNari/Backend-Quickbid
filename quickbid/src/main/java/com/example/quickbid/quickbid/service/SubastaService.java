@@ -24,6 +24,7 @@ import com.example.quickbid.quickbid.dto.response.SubastaDtos.AuthenticatedDetai
 import com.example.quickbid.quickbid.dto.response.SubastaDtos.AuthenticatedItem;
 import com.example.quickbid.quickbid.dto.response.SubastaDtos.AuthenticatedSummary;
 import com.example.quickbid.quickbid.dto.response.SubastaDtos.CurrentBid;
+import com.example.quickbid.quickbid.dto.response.SubastaDtos.BidHistory;
 import com.example.quickbid.quickbid.dto.response.SubastaDtos.Page;
 import com.example.quickbid.quickbid.dto.response.SubastaDtos.PaymentOption;
 import com.example.quickbid.quickbid.dto.response.SubastaDtos.PublicCatalog;
@@ -176,7 +177,7 @@ public class SubastaService {
 				subastaId, cuentaId, ACTIVE_ENROLLMENT_STATES).isPresent();
 		boolean canEnroll = active && categoryOk && !enrollmentClosed && !compatibleEnrollment.isEmpty() && !enrolled;
 		boolean canBid = active && categoryOk && auction.estadoOperativo().equals("en_vivo") && !noActiveItem
-				&& !validBid.isEmpty() && !otherParticipation;
+				&& !validBid.isEmpty() && !otherParticipation && bidWindowOpen(subastaId);
 		boolean hasEnrollmentState = own.stream().anyMatch(this::enrollmentState);
 		boolean hasVerified = own.stream().anyMatch(m -> m.getEstado().equals("verificado"));
 		return new Verification(true, canEnroll, canBid, false,
@@ -260,7 +261,7 @@ public class SubastaService {
 						remainingSeconds(now, deadline), bestAccountId != null && bestAccountId.equals(cuentaId),
 						state, true, finished ? "volver" : "esperar_siguiente_lote", false, deadline != null,
 						message, deadline, timerType, nextLotAt, closeAuctionAt,
-						nextLot == null ? null : nextLot.itemId(), nextLot == null ? null : nextLot.order());
+						nextLot == null ? null : nextLot.itemId(), nextLot == null ? null : nextLot.order(), List.of());
 			}
 			OffsetDateTime deadline = retentionUntil != null ? retentionUntil : lotDeadline;
 			Long remaining = remainingSeconds(now, deadline);
@@ -269,18 +270,42 @@ public class SubastaService {
 					: lotDeadline != null ? "sin_pujas_empresa"
 					: waitingFirstBid ? "esperando_primera_puja" : null;
 			boolean finished = auction.estadoOperativo().equals("finalizada");
-			String state = finished ? "finalizada" : "activo";
+			boolean expired = deadline != null && !deadline.isAfter(now);
+			String state = finished ? "finalizada" : expired ? "esperando_resolucion" : "activo";
 			String message = waitingFirstBid
 					? "Esperando primera puja. El timer inicia con la primera oferta."
-					: finished ? "La subasta finalizó." : null;
+					: finished ? "La subasta finalizó." : expired ? "El tiempo para pujar venció. El lote espera resolución." : null;
 			return new CurrentBid(subastaId, activeItem,
-					bestOffer, auction.moneda(), rs.getLong("version"), verification.puedePujar(),
-					verification.puedePujar() ? null : "El usuario puede ver live pero no cumple las condiciones para pujar",
+					bestOffer, auction.moneda(), rs.getLong("version"), verification.puedePujar() && !expired,
+					expired ? message : verification.puedePujar() ? null : "El usuario puede ver live pero no cumple las condiciones para pujar",
 					basePrice, minimumIncrement(auction.categoria(), basePrice), now,
 					retentionUntil, remaining, bestAccountId != null && bestAccountId.equals(cuentaId),
-					state, false, "pujar", waitingFirstBid, deadline != null, message, deadline,
-					timerType, nextLotAt, closeAuctionAt, null, null);
+					state, false, expired ? "esperar_resolucion" : "pujar", waitingFirstBid, deadline != null, message, deadline,
+					timerType, nextLotAt, closeAuctionAt, null, null, recentBids(subastaId, activeItem));
 		}, subastaId);
+	}
+
+	private boolean bidWindowOpen(Integer auctionId) {
+		List<OffsetDateTime> deadlines = jdbc.query("""
+				SELECT COALESCE(retencion_hasta,lote_finaliza_estimado_at) deadline
+				FROM app_subasta_estado_vivo WHERE subasta_id=?
+				""", (rs, row) -> rs.getObject("deadline", OffsetDateTime.class), auctionId);
+		return deadlines.size() == 1 && (deadlines.get(0) == null || deadlines.get(0).isAfter(OffsetDateTime.now()));
+	}
+
+	private List<BidHistory> recentBids(Integer auctionId, Integer itemId) {
+		return jdbc.query("""
+				SELECT p.id,p.monto,p.version_estado,p.estado,
+				 (SELECT a."numeroPostor" FROM asistentes a JOIN app_cuentas c ON c.cliente_id=a.cliente
+				  WHERE c.id=p.cuenta_id AND a.subasta=p.subasta_id ORDER BY a.identificador LIMIT 1) numero_postor
+				FROM app_pujas_live p WHERE p.subasta_id=? AND p.item_catalogo_id=?
+				 AND p.estado IN ('aceptada','superada','ganadora')
+				ORDER BY p.secuencia DESC,p.id DESC LIMIT 10
+				""", (rs, row) -> {
+			Integer number = (Integer) rs.getObject("numero_postor");
+			return new BidHistory(rs.getLong("id"),rs.getBigDecimal("monto"),rs.getLong("version_estado"),
+					number,number == null ? "Postor" : "Postor #" + number,rs.getString("estado"));
+		}, auctionId, itemId);
 	}
 
 	private BigDecimal minimumIncrement(String category, BigDecimal basePrice) {

@@ -49,6 +49,37 @@ class BidIntegrationTests {
 		limits.clear();
 	}
 
+	@Test void expiredWindowBlocksNewBidsWithoutClosingOrCreatingPurchases() throws Exception {
+		jdbc.update("UPDATE app_subasta_estado_vivo SET retencion_hasta=DATEADD('SECOND',-1,CURRENT_TIMESTAMP) WHERE subasta_id=6001");
+		Integer bidsBefore = jdbc.queryForObject("SELECT COUNT(*) FROM app_pujas_live", Integer.class);
+		Integer purchasesBefore = jdbc.queryForObject("SELECT COUNT(*) FROM app_compras", Integer.class);
+		authBid("aprobado@quickbid.demo", 6001, bid(9001, "25300", 5001, 1, "expired-window"))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.errors[0].code").value("BID_WINDOW_EXPIRED"));
+		authGet("aprobado@quickbid.demo", 6001)
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.puedePujar").value(false))
+				.andExpect(jsonPath("$.data.estadoLote").value("esperando_resolucion"))
+				.andExpect(jsonPath("$.data.adjudicado").value(false));
+		assertEquals(bidsBefore, jdbc.queryForObject("SELECT COUNT(*) FROM app_pujas_live", Integer.class));
+		assertEquals(purchasesBefore, jdbc.queryForObject("SELECT COUNT(*) FROM app_compras", Integer.class));
+		assertEquals("en_vivo", jdbc.queryForObject("SELECT estado_operativo FROM app_subasta_ext WHERE subasta_id=6001", String.class));
+	}
+
+	@Test void snapshotRestoresRealRecentBidsWithAnonymousBidderNumbers() throws Exception {
+		authBid("aprobado@quickbid.demo", 6001, bid(9001, "25300", 5001, 1, "history-first"))
+				.andExpect(status().isCreated());
+		authBid("oro@quickbid.demo", 6001, bid(9001, "25500", 5006, 2, "history-second"))
+				.andExpect(status().isCreated());
+		authGet("aprobado@quickbid.demo", 6001)
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.historialReciente[0].monto").value(25500))
+				.andExpect(jsonPath("$.data.historialReciente[0].estado").value("aceptada"))
+				.andExpect(jsonPath("$.data.historialReciente[0].postorAlias").value("Postor #2"))
+				.andExpect(jsonPath("$.data.historialReciente[1].monto").value(25300))
+				.andExpect(jsonPath("$.data.historialReciente[1].estado").value("superada"));
+	}
+
 	@Test void pujarSinTokenDevuelve401Uniforme() throws Exception {
 		mvc.perform(post("/api/subastas/6001/pujar").contentType(MediaType.APPLICATION_JSON)
 				.content(bid(9001, "25300", 5001, 1, "no-token")))

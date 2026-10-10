@@ -61,6 +61,9 @@ public class BidTransactionService {
 		if (!live.version().equals(request.clientStateVersion())) throw conflict("El estado de la subasta cambió", "BID_OUTDATED_STATE");
 		Item item = item(accountId, auctionId, request.itemCatalogoId());
 		if (live.itemId() == null || !live.itemId().equals(request.itemCatalogoId())) throw conflict("El lote ya no está activo", "ITEM_NOT_ACTIVE");
+		if (live.deadline() != null && !live.deadline().isAfter(OffsetDateTime.now())) {
+			throw conflict("El tiempo para pujar venció; el lote espera resolución", "BID_WINDOW_EXPIRED");
+		}
 		if (categoryOrder(account.category()) == 0 || categoryOrder(auction.category()) == 0) throw unprocessable("Categoría inválida", "INVALID_CATEGORY");
 		if (categoryOrder(account.category()) < categoryOrder(auction.category())) throw forbidden("Categoría insuficiente", "AUCTION_CATEGORY_FORBIDDEN");
 
@@ -135,10 +138,11 @@ public class BidTransactionService {
 
 	private LiveState lockLiveState(Integer auctionId) {
 		List<LiveState> values = jdbc.query("""
-				SELECT item_catalogo_activo_id,version FROM app_subasta_estado_vivo
+				SELECT item_catalogo_activo_id,version,COALESCE(retencion_hasta,lote_finaliza_estimado_at) deadline
+				FROM app_subasta_estado_vivo
 				WHERE subasta_id=? FOR UPDATE
 				""", (rs, row) -> new LiveState((Integer) rs.getObject("item_catalogo_activo_id"),
-						rs.getLong("version")), auctionId);
+						rs.getLong("version"), rs.getObject("deadline", OffsetDateTime.class)), auctionId);
 		if (values.isEmpty()) throw notFound("Estado vivo inexistente");
 		return values.get(0);
 	}
@@ -367,7 +371,7 @@ public class BidTransactionService {
 	public record AcceptedBid(Bid response, Long surpassedAccountId, boolean replay) {
 	}
 
-	private record LiveState(Integer itemId, Long version) {
+	private record LiveState(Integer itemId, Long version, OffsetDateTime deadline) {
 	}
 
 	private record Account(Integer clientId, String state, String category) {

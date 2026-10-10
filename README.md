@@ -6,6 +6,8 @@ It provides a REST API for registration and authentication, auction catalogs, re
 
 The mobile application is available in [quickbid-mobile](https://github.com/AgustinNari/quickbid-mobile).
 
+See the mobile application's [screenshots](https://github.com/AgustinNari/quickbid-mobile#screenshots) for auction discovery, catalogs, lot details, and live bidding.
+
 ## Tech Stack
 
 - Java 17
